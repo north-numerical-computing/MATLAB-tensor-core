@@ -7,7 +7,7 @@ MATLAB Tensor Core models
 
 This repository provides accurate tensor core models written in MATLAB. It also includes parts of the model validation data which is used to refine the models as shown in [1].
 
-The [models](models/) directory contains the MATLAB models of tensor core in different GPUs, all of which are build on the parameterised model in [Generic_BFMA_TC.m](models/tools/Generic_BFMA_TC.m). For example the [B200TC.m](models/B200TC.m) models the General Matrix Multiply (GEMM) based on the accurate model of a tensor core in the NVIDIA Blackwell B200 GPUs. In the current version of the toolbox, the models take matrices and input and output floating-point formats as inputs and multiply the matrices by using a recursive summation algorithm to accummulate the results of several tensor core invocations.
+The [models](models/) directory contains the MATLAB models of tensor cores of several NVIDIA GPUs, all of which are build on the parameterised model in [Generic_BFMA_TC.m](models/tools/Generic_BFMA_TC.m). For example the [B200TC.m](models/B200TC.m) models the General Matrix Multiply (GEMM) based on the accurate model of a tensor core in the NVIDIA Blackwell B200 GPUs. In the current version of the toolbox, the models take matrices and input and output floating-point formats as inputs and multiply the matrices by using a recursive summation algorithm to accummulate the results of several tensor core invocations.
 
 The initial analysis of the behaviour of GPU tensor cores is performed with the code available at [IEEE_HPEC2025_block_FMA_tests](https://github.com/faiziktk/IEEE_HPEC2025_block_FMA_tests).
 It is based on the generalised testing methodology [2] which determines the following features of hardware computing mixed-precision inner products:
@@ -32,7 +32,7 @@ The [experiments](experiments/) directory contains various experiments with some
 ## Example: Using in-built models
 
 The following example rounds two matrices to fp16 and multiplies them using the model of the B200 tensor core.
-Note that B200TC compute the GEMM and alpha and beta scale factors are set to 1.
+Note that B200TC computes the GEMM, with alpha and beta scale factors set to 1.
 
 ```
 >> inopts.format = 'binary16';
@@ -49,7 +49,7 @@ ans =
    0.901759386062622   1.838499188423157   1.608222723007202   1.265371918678284
   ```
 
-The following example uses an 8-bit floating-point format as an input format in the B200 tensor core model.
+The following example uses an 8-bit floating-point format as the input format in the B200 tensor core model.
 
 ```
 >> inopts.format = 'fp8-e4m3';
@@ -71,7 +71,7 @@ While the B200 tensor core model comes with this toolbox, below is a minimal exa
 
 ```
 % Default structures assuming fp16 in and fp32 output
-def_params.fma    = 32;      % Fused multiply-add (FMA) size
+def_params.fma    = 16;      % Fused multiply-add (FMA) size
 def_params.neab   = 2;       % TC extra alignment bits
 def_params.frmode = 'rz';    % TC final rounding mode
 def_params.inter_pattern=1;  % Interleave two 16-element vectors
