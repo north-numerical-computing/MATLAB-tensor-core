@@ -81,5 +81,5 @@ D = GEMM(alpha, A, B, beta, C, informat, outformat, def_params);
 
 ## References
 
-[1] F. A. Khattak and M. Mikaitis, [Accurate Models of NVIDIA Tensor Cores](https://). In Preparation. 2025.<br>
+[1] F. A. Khattak and M. Mikaitis, [Accurate Models of NVIDIA Tensor Cores](https://arxiv.org/abs/2512.07004). arXiv:2512.07004 [cs.MS]. Dec. 2025.<br>
 [2] F. A. Khattak and M. Mikaitis, [Generalized Methodology for Determining Numerical Features of Hardware Floating-Point Matrix Multipliers: Part I](https://ieeexplore.ieee.org/abstract/document/11196657). 2025 IEEE High Performance Extreme Computing Conference (HPEC). Sep. 2025.<br>
