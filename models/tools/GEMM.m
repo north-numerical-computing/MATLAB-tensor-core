@@ -2,10 +2,10 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
 
 
     %% Check matrix multiplication compatibility
-    [M, K1] = size(A);
+    [M, K] = size(A);
     [K2, N] = size(B);
     
-    if K1 ~= K2
+    if K ~= K2
         error('Matrix dimensions are not compatible for multiplication: A is %dx%d, B is %dx%d.', M, K1, K2, N);
     end
     if isempty(C) | ~exist('C','var')
@@ -124,7 +124,6 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
     % Flatten/reshape A to row vector and compute K
     % ---------------------------------------------------------
     a = reshape(A(1, :), 1, []);
-    K = numel(a);              % Number of elements
     remainder = mod(K, nfma);  % Distance from next multiple of nfma
     if remainder~=0
         pad_size = nfma - remainder;
