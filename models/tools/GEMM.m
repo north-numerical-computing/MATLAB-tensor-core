@@ -134,7 +134,7 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
     
 
 
-if M>2 && ~isempty(ver('parallel')) && feature('numcores') > 1
+if M>2 && exist('ver','file') && ~isempty(ver('parallel')) && exist('feature','file') && feature('numcores') > 1
 %--------------------------------------------------------------------
 %%      Parallel Computing Toolbox
 %--------------------------------------------------------------------
