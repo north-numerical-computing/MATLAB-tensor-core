@@ -18,7 +18,6 @@
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) {
 
   /* Do various checks of the input args */
-
   if(nrhs != 8) {
     mexErrMsgIdAndTxt("MyToolbox:GEMM:nrhs",
                       "Eight inputs required.");
@@ -83,7 +82,6 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) {
                       "def_params must be a structure");
   }
 
-  /* variable declarations here */
   double alpha;
   double *A;
   double *B;
@@ -117,16 +115,16 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) {
   temp = mxGetField(prhs[7], 0, "inter_pattern");
   def_params -> inter_pattern = (bool)mxGetScalar(temp);
 
-  /* get dimensions of the input matrix */
+  /* Get dimensions of the input matrices */
   m = mxGetM(prhs[1]);
   k = mxGetN(prhs[1]);
   n = mxGetN(prhs[2]);
 
-  /* create the output matrix */
+  /* Create the output matrix */
   plhs[0] = mxCreateDoubleMatrix(m, n, mxREAL);
   double *outMatrix = mxGetDoubles(plhs[0]);
 
-  /* call the computational routine */
+  /* Call the active gemm implementation */
   gemm_run(alpha, A, B, beta, C, informat, outformat, def_params, m, k, n);
 
   memcpy(outMatrix, C, sizeof(double) * m * n);
