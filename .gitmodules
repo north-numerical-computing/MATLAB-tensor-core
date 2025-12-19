@@ -1,0 +1,3 @@
+[submodule "models/tools/C/dependencies/cpfloat"]
+	path = models/tools/C/dependencies/cpfloat
+	url = git@github.com:north-numerical-computing/cpfloat.git
