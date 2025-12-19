@@ -23,4 +23,4 @@ function D=H200TC(alpha, A, B, beta, C, informat, outformat)
 %   D: Result of the operation D = A * B + C computed under the 
 %      specified tensor core configuration.
 
-D = B200TC(alpha, A, B, beta, C, informat, outformat);
+D = H100TC(alpha, A, B, beta, C, informat, outformat);
