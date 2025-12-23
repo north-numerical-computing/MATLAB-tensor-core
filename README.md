@@ -67,7 +67,7 @@ ans =
 
 ## Example: Setting up the NVIDIA B200 model
 
-While the B200 tensor core model comes with this toolbox, below is a minimal example for setting it up. The input matrices are assumed to be rounded to the appropriate formats with CPFloat. The model in [B200.m](models/B200TC.m) provides a more detailed set up that changes the parameters of a generalised model based on all possible input/output format combinations.
+While the B200 tensor core model comes with this toolbox, below is a minimal example for setting it up. The input matrices are assumed to be rounded to the appropriate formats with CPFloat. The model in [B200TC.m](models/B200TC.m) provides a more detailed set up that changes the parameters of a generalised model based on all possible input/output format combinations.
 
 ```
 % Default structures assuming fp16 in and fp32 output
