@@ -47,6 +47,7 @@ switch GPUModel
     otherwise
 end
 
+isFP8 = ismember(lower(inputformat),{'e5m2','e4m3','fp8-e4m3','fp8-e5m2'});
 outputformatc='fp32'; % c was considered always in fp32, if needs in fp16, roundtonearest was used in CUDA
 
 %
@@ -62,7 +63,11 @@ A=transpose(A);
 B = readHexFloatFile(fullPathB);
 B=reshape(B,K,numel(B)/K);
 B=transpose(B);
-C=readIeeeFloatsFromFile(fullPathC);
+
+if ~(ismember(GPUModel, {'H100','H200'}) && isFP8)
+    C=readIeeeFloatsFromFile(fullPathC);
+    % for fp8 in H100 and H200, D=A*B+D where D is made zero initially,
+end
 DGPU = readIeeeFloatsFromFile(fullPathD);
 
 %% input and output formats
