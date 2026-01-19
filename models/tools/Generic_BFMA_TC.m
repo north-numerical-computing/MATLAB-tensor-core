@@ -1,56 +1,38 @@
-function d = Generic_BFMA_TC(r, NoExpBitsPrd, NoManBitsPrd, OutRoundMode, neab, stkbitenabled,NoManBitsOut,NoExpBitsOut,a_block,b_block,c,special_case,NoExpBitsIn)
-%BLOCKFMACALL Iterative Block FMA Operation
-%
-%   [d, dbits, dexp, sOut] = BlockFMACall(r, NoExpBits, NoManBits, OutRoundMode, neab, stkbitenabled)
-%
-%   Performs a block fused multiply-add (FMA) operation on the input vector
-%   of floating-point operands. Operands are aligned, accumulated, and
-%   rounded according to IEEE floating-point rules.
-%
-%   Inputs:
-%       r             - Vector of operands (already in target precision domain)
-%       NoExpBitsPrd     - Number of exponent bits in target format
-%       NoManBitsPrd     - Number of mantissa bits (excluding implicit bit)
-%       OutRoundMode  - Rounding mode (e.g. 'RNE', 'RTZ', 'RUP', 'RDN')
-%       neab          - Number of effective alignment bits (Inf = full precision)
-%       stkbitenabled - Enable sticky-bit handling for truncated bits
-%
-%   Outputs:
-%       d     - Final accumulated result (in numeric value)
+function d = Generic_BFMA_TC(NoExpBitsPrd, NoManBitsPrd, OutRoundMode, neab, stkbitenabled,NoManBitsOut,NoExpBitsOut,a_block,b_block,c,NoExpBitsIn)
 
-% -------------------------------------------------------------------------
-% if accumulation over a single column of B has generated previously Inf/-inf
-% since the intial if check before for loop over columns has been passed
-    if any(isnan(r)) || any(isinf(r))
+       
+    %% products recomputed for denormalised product case
+    r2=a_block.*b_block; % second set of products
+    a_block(r2==0)=[];   
+    b_block(r2==0)=[];
+    r2(r2==0)=[];
+    if abs(c)>abs(r2)
+        special_case=0;
+    else
+        special_case=1;
+    end
+    % if accumulation over a single column of B has generated previously Inf/-inf
+    % since the intial if check before for loop over columns has been passed
+    if any(isnan([r2,c])) || any(isinf([r2,c]))
         d=sum(r);
         return
     end
     
     % Initialise outputs
     d     = 0;
-    dbits = [];
-    dexp  = 0;
-    sOut  = 0; 
-    K = numel(r); % Number of operands
-    dummy_array=2:K;
     emin_output=1-(2^(NoExpBitsOut-1)-1);
     emin_input=1-(2^(NoExpBitsIn-1)-1);
     emin_product=1-(2^(NoExpBitsPrd-1)-1);
     
-    %% products recomputed for denormalised product case
-    r2=a_block.*b_block; % second set of products
-    a_block(r2==0)=[];   
-    b_block(r2==0)=[];
-    r2(r2==0)=[];
     %%  check for denormalised product --9:55 8/12/2025
     spc=0;
-    if K>1 && special_case==1 
+    if special_case==1 && ~isempty(r2)
                     [~,a_exp]=log2(abs(a_block)); a_exp=a_exp-1;
                     [~,b_exp]=log2(abs(b_block)); b_exp=b_exp-1;
-                    a_exp=max(a_exp,emin_input);
-                    b_exp=max(b_exp,emin_input);
+                    a_exp_u=max(a_exp,emin_input);
+                    b_exp_u=max(b_exp,emin_input);
                     
-                    prod_exp=a_exp+b_exp;
+                    prod_exp=a_exp_u+b_exp_u;
                     prod_exp_ind= prod_exp==max(prod_exp);
                     prod_exp=prod_exp(prod_exp_ind);
                     
@@ -59,117 +41,61 @@ function d = Generic_BFMA_TC(r, NoExpBitsPrd, NoManBitsPrd, OutRoundMode, neab, 
 
                     [~,c_exp]=log2(abs(c));
                     c_exp=c_exp-1;
-                    c_exp=max(c_exp,emin_product);
                     
-                if prod_exp(1)>=c_exp && (prod_sig>=2) 
+                if prod_exp(1)>=(max(c_exp,emin_product)) && (prod_sig>=2) 
                     spc=1;
                 end
-    end
-    
-    %% extract IEEE 754 bits format from the product and c
-    [ExpBitsArray, BitCharArray] = fpbits_IEEE(r, NoManBitsPrd);
-    SignBits=double(r<0);
-    %% if only one element is present in the provided block, dont compute further
-    %-----------------------------------------------------------------
-    if K==1
-       dexp = ExpBitsArray(1);
-       dbits=BitCharArray(1,:);
-            if strcmp(OutRoundMode,'rz') 
-                 dbits(3+NoManBitsOut:end)=[]; % truncation
-            else
-                [dbits,dexp] = ieeeround(dbits, OutRoundMode, NoManBitsOut, sOut, dexp);
-            end
-    
-            if dexp<emin_output
-                min_shift=dexp-emin_output;
-                [dbits]=subnormalsignificand(dbits,abs(min_shift),1);
-                dexp=emin_output;
-            end
+ else
+        [~,a_exp]=log2(abs(a_block)); a_exp=a_exp-1; 
+        [~,b_exp]=log2(abs(b_block)); b_exp=b_exp-1;
+        
+end
 
-            d = ((dbits(1)-'0')+bin2dec(dbits(3:end))*2^(-NoManBitsOut))*2^dexp; 
-            
-            if SignBits(1)==1
-                   d=-d;
-            end
-        
-            return
-    end    
-    %----------------------------------------------------------------
-    
-     %% ALIGNMENT OF SIGNIFICANDS (Optimized)
+a_sig=pow2(a_block,-a_exp);b_sig=pow2(b_block,-b_exp); 
 
-        maxexpshift = ExpBitsArray(1) - ExpBitsArray(end);
-        totalLength = 2 + spc + NoManBitsPrd + maxexpshift;
-        
-        % Preallocate AlignBits as char array of '0's
-        AlignBits = repmat('0', K, totalLength);
-        
-        % Place first operand directly
-        lenBitChar = 2 + NoManBitsPrd;
-        AlignBits(:, 1:lenBitChar) = BitCharArray;
-        
-        % Compute shifts for all subsequent operands
-        expshiftArr = ExpBitsArray(1) - ExpBitsArray(2:end);  % vector of shifts
-        nnz_ind=dummy_array((expshiftArr~=0));
-        for k = nnz_ind
-            shift = expshiftArr(k-1);
-            
-            if shift > 0
-                % Place '0.' at start
-                AlignBits(k, 1:2) = '0.';
-                
-                % Fill remaining leading zeros if needed
-                if shift > 1
-                    AlignBits(k, 3:shift+1) = '0';
-                end
-                
-                % Copy the significant bits from BitCharArray
-                AlignBits(k, shift+2 : shift + lenBitChar) = [BitCharArray(k,1), BitCharArray(k,3:end)];
-            else
-                % No shift, copy directly
-                AlignBits(k, 1:lenBitChar) = BitCharArray(k,:);
-            end
-        end
+prod_exp=a_exp+b_exp; prod_sig=a_sig.*b_sig;
+
+if c~=0
+    sign_bits=double([prod_sig,c]<0);   
+else
+    sign_bits=double(prod_sig<0);
+end        
+%% -------------------------
+  %  ACCUMULATION & ALIGNMENT
+    %  -------------------------
     
-        
-   
-    %%  TRUNCATION (if neab < Inf)
     neab=neab+spc;
-    if neab ~= Inf
-        if stkbitenabled
-            stkbits = any(AlignBits(:, 2 + NoManBitsPrd + neab+1:end) == '1', 2);
-            stkbits = char(stkbits + '0');
-            AlignBits(:, 2 + NoManBitsPrd + neab + 1:end) = [];
-            AlignBits = [AlignBits,stkbits];
-        else
-            AlignBits(:, 2 + NoManBitsPrd + neab + 1:end) = [];
-        end
+    [max_exp_unbiased, align_sigs] = fpbits_IEEE2(prod_sig,prod_exp,c,neab,stkbitenabled);
+    sum_unormalised=dot(double(align_sigs),(1-2*(sign_bits)));
+    sum_unormalised_uint64=uint64(abs(sum_unormalised));
+    sum_normalised=sum_unormalised/2^(NoManBitsPrd+neab+stkbitenabled);   
+    sOut=sum_normalised<0;
+    
+    
+    if sum_unormalised==0
+        d=0;
+        return
     end
-
-    %% -------------------------
-    %  ACCUMULATION
-    %  -------------------------
-    total = AccBinStrs(AlignBits, double(SignBits));
-    intpart=abs(fix(total));
-    fracpart=abs(total)-abs(intpart);
-    if neab==Inf
-        fracstr=frac2bins(fracpart, numel(AlignBits(1,:))-2);
-         
+    
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    % 
+    %% Normalisation
+    %
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    [~,total_exp]=log2(abs(sum_normalised)); total_exp=total_exp-1;
+    dexp=max_exp_unbiased+total_exp;
+    if total_exp>0
+        temp_str=dec2bin(sum_unormalised_uint64);
+        dbits=[temp_str(1),'.',temp_str(2:end)];
     else
-        fracstr=frac2bins(fracpart, NoManBitsPrd+neab+stkbitenabled);
+        total_exp=abs(total_exp);
+        sum_unormalised_uint64=bitshift(sum_unormalised_uint64,total_exp);
+        temp_str=dec2bin(sum_unormalised_uint64);
+        dbits=[temp_str(1),'.',temp_str(2:end)];
     end
-    sOut=total<0;
-    intpartstr=dec2bin(intpart);
-    decimal_point=numel(intpartstr)+1;
-    ResultStr = [intpartstr, '.', fracstr];
+ 
     
-    
-    
-
-    %% -------------------------
-    %  NORMALISATION & ROUNDING
-    %  -------------------------
-    [dbits, dexp] = NormalisationPostAddition(ResultStr, max(ExpBitsArray),decimal_point,intpart);
     % subnormal range, 
     if dexp<emin_output
         min_shift=dexp-emin_output;
@@ -177,22 +103,20 @@ function d = Generic_BFMA_TC(r, NoExpBitsPrd, NoManBitsPrd, OutRoundMode, neab, 
         dexp=emin_output;
     end   
     
-    if strcmp(OutRoundMode,'rz') 
-         dbits(3+NoManBitsOut:end)=[]; % truncation
-    else
-        [dbits,dexp] = ieeeround(dbits, OutRoundMode, NoManBitsOut, sOut, dexp);
+    if ~strcmp(OutRoundMode,'rz') 
+        [dbits,dexp] = ieeeround(dbits, OutRoundMode, NoManBitsOut, sOut, double(dexp));
     end
     
     if dexp<emin_output
         min_shift=dexp-emin_output;
-        [dbits]=subnormalsignificand(dbits,abs(min_shift),1);
+        [dbits]=subnormalsignificand(dbits(1:2+NoManBitsOut),abs(min_shift),1);
         dexp=emin_output;
     end 
     if isempty(dexp)
     dexp=0;
     end
     % compute decimal 
-    d= ((dbits(1)-'0')+bin2dec(dbits(3:end))*2^(-NoManBitsOut))*2^dexp;
+    d= ((dbits(1)-'0')+bin2dec(dbits(3:NoManBitsOut+2))*2^(-NoManBitsOut))*2^double(dexp);
     if sOut==1
             d=-d;
     end
@@ -209,7 +133,7 @@ function d = Generic_BFMA_TC(r, NoExpBitsPrd, NoManBitsPrd, OutRoundMode, neab, 
          end
          % uncomment to see dexp_bits 
         % dexp = dec2bin(dexp, NoExpBitsOut);
-        dbits=[]; % empty on purpose, 
+        %dbits=[]; % empty on purpose, 
     return
     end
 
@@ -221,6 +145,9 @@ function d = Generic_BFMA_TC(r, NoExpBitsPrd, NoManBitsPrd, OutRoundMode, neab, 
 
 
 end
+
+
+% subnormalsignificand
 
 function [dbits]=subnormalsignificand(dbits,shift,truncate)
 CharLen=numel(dbits);
@@ -290,34 +217,7 @@ function binStr = frac2bins(x, nBits)
 end
 
 
-function binStr = frac2bins2(x, nBits)
- powers = 2.^(1-nBits:0);   % 2^{-1}, 2^{-2}, ...
-    bits = floor(x * 2.^nBits ./ (2.^(nBits-1:-1:0))) ;  % get all bits
-    binStr = char(bits + '0');
-end
 
-
-%% ========================================================================
-%
-% =========================================================================
-function [a_norm,b_norm,a_exp,b_exp]=norm_exp_log2(a_block,b_block,NoExpBitIn)
-%------------------------------------
-    emin_output=-2^(NoExpBitIn-1)+2;
-    % Compute exponents
-    a_exp = floor(log2(abs(a_block)));
-    a_exp(a_exp<emin_output)=emin_output;
-
-    b_exp = floor(log2(abs(b_block)));
-    b_exp(b_exp<emin_output)=emin_output;
-
-    % Normalize blocks
-    a_norm = a_block ./ 2.^a_exp;
-    b_norm = b_block ./ 2.^b_exp;
-
-%----------------------------------
-
-
-end
 
 %% ========================================================================
 %  Sub-Function: ieeeround
@@ -388,13 +288,30 @@ end
 %
 %-----------------------------------------
 function [outbits,outexp]=NormPostAddULP(instr,inexp,nomanbits)
-total=bin2dec([instr(1),instr(3:end)])/2^(nomanbits)+2^(-nomanbits);
+total_unormalised=bin2dec([instr(1),instr(3:end)])+1;
+total=total_unormalised/2^nomanbits;
 intpart=abs(fix(total));
 fracpart=abs(total)-abs(intpart);
 fracstr=frac2bins(fracpart, nomanbits);
 intpartstr=dec2bin(intpart);
 decpointidx=numel(intpartstr)+1;
 outstr = [intpartstr, '.', fracstr];
+
+
+ % total_exp=floor(log2(intpart));
+ % outexp2=inexp+total_exp;
+ % if total_exp>0
+ %        temp_str=dec2bin(total_unormalised);
+ %        outbits2=[temp_str(1),'.',temp_str(2:end)];
+ % else
+ %        total_exp=abs(total_exp);
+ %        total_unormalised_uint32=bitshift(uint32(total_unormalised),total_exp);
+ %        temp_str=dec2bin(total_unormalised_uint32);
+ %        outbits2=[temp_str(1),'.',temp_str(2:end)];
+ % end
+ % 
+
+
 
 
 [outbits,outexp]=NormalisationPostAddition(outstr,inexp,decpointidx,intpart);
@@ -503,18 +420,18 @@ function [exp_unbiased, BitCharArray] = fpbits_IEEE(x, NoManBits)
             x=single(x);
 
             u = typecast(x, 'uint32');
-
             exp_raw  = bitand(bitshift(u, -23), uint32(255));     % 8 bits
             frac     = bitand(u, uint32(2^23 - 1));               % 23 bits
             bias     = 127;
-
             implicit_bit = uint32(2^23);  % 1 << 23
-            
             normal_mask = exp_raw ~= 0;
             implicit = zeros(size(u),'uint32');
             implicit(normal_mask) = implicit_bit;
 
             full_sig = implicit + frac;   % 24 bits
+
+
+
             significand_bits = dec2bin(full_sig, 24);
             BitCharArray=[significand_bits(:,1),'.'+zeros(N,1),significand_bits(:,2:end)];
             exp_unbiased = double(exp_raw) - bias;
@@ -549,3 +466,58 @@ function [exp_unbiased, BitCharArray] = fpbits_IEEE(x, NoManBits)
 end
 
 
+function [max_exp_unbiased,full_sig] = fpbits_IEEE2(x,x_exp,c,neab,stkbit)
+%IEEE754_PARTS Extract IEEE-754 exponent + significand for half or single precision.
+%
+%   [exp_unbiased, significand_bits] = ieee754_parts(x, 'single')
+%   [exp_unbiased, significand_bits] = ieee754_parts(x, 'half')
+%
+%   exp_unbiased     : unbiased exponent (decimal)
+%   significand_bits : bit strings with implicit bit included (normal)
+%                      or 0.xxx… (subnormal)
+%
+%   Handles normals, subnormals, zeros, and preserves vectorization.
+            
+            
+
+            bias     = 127;
+            implicit_bit = uint32(8388608);  % 1 << 23
+            
+            
+            %% for products
+            x=single(x);
+            u = typecast(x, 'uint32');
+            exp_raw  = bitand(bitshift(u, -23), uint32(255));     % 8 bits
+            exp_unbiased = int16(exp_raw) - 127 + int16(x_exp);   % stay integer
+            frac     = bitand(u,implicit_bit-1); % equal 2^23-1               % 23 bits
+            full_sig = frac + uint32(exp_raw ~= 0) * implicit_bit;   
+            %% c is done indepdent
+            if c~=0
+            xc=single(c);
+            uc = typecast(xc, 'uint32');
+            exp_raw_c  = bitand(bitshift(uc, -23), uint32(255));     % 8 bit
+            exp_c  = int16(exp_raw_c)-127;     % 8 bits
+            exp_c(exp_c == -127)=-126;
+            frac_c     = bitand(uc,implicit_bit-1); % equal 2^23-1               % 23 bits
+            full_sig_c = frac_c + uint32(exp_raw_c ~= 0) * implicit_bit;
+            full_sig=[full_sig,full_sig_c];
+            % append c_exp
+            exp_unbiased=[exp_unbiased,exp_c];
+            end
+            
+            max_exp_unbiased=max(exp_unbiased);
+            % shift of the exponents
+            exp_shifts = max_exp_unbiased - exp_unbiased;
+            lost_mask=uint32(2.^exp_shifts-1);
+            
+            full_sig=bitshift(full_sig,neab);
+            if stkbit
+             lost_bits=bitand(full_sig,lost_mask)~=0;
+             full_sig=bitshift(full_sig,-exp_shifts)*2^stkbit+uint32(lost_bits);
+            else
+             full_sig=bitshift(full_sig,-exp_shifts);
+            end
+            
+           
+            
+end
