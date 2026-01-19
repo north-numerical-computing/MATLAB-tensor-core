@@ -1,11 +1,11 @@
 function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
 
-
+    warning('off', 'all')
     %% Check matrix multiplication compatibility
-    [M, K] = size(A);
+    [M, K1] = size(A);
     [K2, N] = size(B);
     
-    if K ~= K2
+    if K1 ~= K2
         error('Matrix dimensions are not compatible for multiplication: A is %dx%d, B is %dx%d.', M, K1, K2, N);
     end
     if isempty(C) | ~exist('C','var')
@@ -63,6 +63,7 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
         B=cpfloat(B, def_inopts);
         C=cpfloat(beta*C, def_outopts);
     else
+        
         fprintf(['CPFloat lib. is not used. Input matrices A, B' ...
             ' and C are assumed to be rounded to their respective' ...
             ' precisions.\n']);
@@ -124,6 +125,7 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
     % Flatten/reshape A to row vector and compute K
     % ---------------------------------------------------------
     a = reshape(A(1, :), 1, []);
+    K = numel(a);              % Number of elements
     remainder = mod(K, nfma);  % Distance from next multiple of nfma
     if remainder~=0
         pad_size = nfma - remainder;
@@ -190,7 +192,6 @@ if M>2 && exist('ver','file') && ~isempty(ver('parallel')) && exist('feature','f
                                 % ---------------------------------------------------------
                                 % Extract block of nfma elements
                                 % ---------------------------------------------------------
-                                in_block = r((k - 1) * nfma + 1 : k * nfma);
                                 a_block =  a((k - 1) * nfma + 1 : k * nfma);
                                 b_block =  b((k - 1) * nfma + 1 : k * nfma);
                                 
@@ -200,85 +201,39 @@ if M>2 && exist('ver','file') && ~isempty(ver('parallel')) && exist('feature','f
                                 if inter_pattern
                                     
                                     %% ------------------ First interleaved block ------------------
-                                    in_block_1 = in_block(seq1);
-                                    in_block_2 = [in_block(seq2), 0];
-                                    
                                     a_block_1 = a_block(seq1);
                                     b_block_1 = b_block(seq1);
                                     
-                                    % Sort by magnitude
-                                    [~, sort_ord] = sort(abs(in_block_1), 'descend');
-                                    in_block_1 = in_block_1(sort_ord);
-                                    
-                                    % Special case: because c=0 here
-                                    special_case = 1;
-                                    
-                                    % Remove zeros
-                                    in_block_1(in_block_1 == 0) = [];
-                                    
                                     % First half cycle
-                                    if ~isempty(in_block_1)
-                                        d1 = Generic_BFMA_TC( ...
-                                            in_block_1, NoExpBitsPrd, NoManBitsPrd, ...
+                                   
+                                        d1 = Generic_BFMA_TC(NoExpBitsPrd, NoManBitsPrd, ...
                                             OutRoundMode, neab, stkbitenabled, ...
                                             NoManBitsOut, NoExpBitsOut, ...
-                                            a_block_1, b_block_1, 0, special_case,NoExpBitsIn);
-                                    else
-                                        d1 = 0;
-                                    end
+                                            a_block_1, b_block_1,0,NoExpBitsIn);
+                                    
                                     
                                     %% ------------------ Second interleaved block ------------------
                                     
-                                    % Re-check special-case flag
-                                    if abs(d1) > abs(in_block_2)
-                                        special_case = 0;
-                                    else
-                                        special_case = 1;
-                                    end
-                                    
-                                    % Insert previous output into block
-                                    in_block_2(end) = d1;
-                                    
-                                    % Sort again
-                                    [~, sort_ord] = sort(abs(in_block_2), 'descend');
-                                    in_block_2 = in_block_2(sort_ord);
-                                    
                                     a_block_2 = a_block(seq2);
                                     b_block_2 = b_block(seq2);
+                                     % Second half cycle
                                     
-                                    % Remove zeros
-                                    in_block_2(in_block_2 == 0) = [];
-                                    
-                                    % Second half cycle
-                                    if ~isempty(in_block_2)
-                                        d2 = Generic_BFMA_TC( ...
-                                            in_block_2, NoExpBitsPrd, NoManBitsPrd, ...
+                                        d2 = Generic_BFMA_TC( NoExpBitsPrd, NoManBitsPrd, ...
                                             OutRoundMode, neab, stkbitenabled, ...
                                             NoManBitsOut, NoExpBitsOut, ...
-                                            a_block_2, b_block_2, d1, special_case,NoExpBitsIn);
-                                    else
-                                        d2 = 0;
-                                    end
+                                            a_block_2, b_block_2, d1,NoExpBitsIn);
+                                    
                                     
                                     %% ------------------ Final addition with C ------------------
                                     
-                                    in_block_3 = [d2, c];
                                     
-                                    [~, sort_ord] = sort(abs(in_block_3), 'descend');
-                                    in_block_3 = in_block_3(sort_ord);
                                     
-                                    in_block_3(in_block_3 == 0) = [];
-                                    % neab=2, stikybitenabled=1, prd=output precsision
-                                    if ~isempty(in_block_3)
-                                        d = Generic_BFMA_TC( ...
-                                            in_block_3, NoExpBitsOut, NoManBitsOut, ...
+                                    d = Generic_BFMA_TC( NoExpBitsOut, NoManBitsOut, ...
                                             cOutRoundMode, 2, 1, ...
                                             NoManBitsOut, NoExpBitsOut, ...
-                                            [], [], 0, 0);
+                                            d2, 1, c,NoExpBitsIn);
                                         
-                                    else
-                                        d = 0;
-                                    end
+                                    
                                     
                                     c = d;     % update accumulator
                                 
@@ -287,31 +242,13 @@ if M>2 && exist('ver','file') && ~isempty(ver('parallel')) && exist('feature','f
                             % ---------------------------------------------------------
                             else
                                 
-                                % Detect special-case
-                                if abs(c) > abs(in_block)
-                                    special_case = 0;
-                                else
-                                    special_case = 1;
-                                end
-                                
-                                % Append accumulator c
-                                in_block(end + 1) = c;
-                                
-                                % Sort and remove zeros
-                                [~, sort_ord] = sort(abs(in_block), 'descend');
-                                in_block = in_block(sort_ord);
-                                in_block(in_block == 0) = [];
-                                
                                 % Call TC block
-                                if ~isempty(in_block)
-                                    d = Generic_BFMA_TC( ...
-                                        in_block, NoExpBitsPrd, NoManBitsPrd, ...
+                                
+                                    d = Generic_BFMA_TC(NoExpBitsPrd, NoManBitsPrd, ...
                                         OutRoundMode, neab, stkbitenabled, ...
                                         NoManBitsOut, NoExpBitsOut, ...
-                                        a_block, b_block, c, special_case,NoExpBitsIn);
-                                else
-                                    d = 0;
-                                end
+                                        a_block, b_block, c,NoExpBitsIn);
+                                
                                 
                                 c = d;     % recursive accumulation
                             
@@ -374,7 +311,7 @@ else % if M>2 && parallel_cores
                                 % ---------------------------------------------------------
                                 % Extract block of nfma elements
                                 % ---------------------------------------------------------
-                                in_block = r((k - 1) * nfma + 1 : k * nfma);
+                                
                                 a_block =  a((k - 1) * nfma + 1 : k * nfma);
                                 b_block =  b((k - 1) * nfma + 1 : k * nfma);
                                 
@@ -384,85 +321,38 @@ else % if M>2 && parallel_cores
                                 if inter_pattern
                                     
                                     %% ------------------ First interleaved block ------------------
-                                    in_block_1 = in_block(seq1);
-                                    in_block_2 = [in_block(seq2), 0];
+                                    
                                     
                                     a_block_1 = a_block(seq1);
                                     b_block_1 = b_block(seq1);
                                     
-                                    % Sort by magnitude
-                                    [~, sort_ord] = sort(abs(in_block_1), 'descend');
-                                    in_block_1 = in_block_1(sort_ord);
-                                    
-                                    % Special case: because c=0 here
-                                    special_case = 1;
-                                    
-                                    % Remove zeros
-                                    in_block_1(in_block_1 == 0) = [];
-                                    
-                                    % First half cycle
-                                    if ~isempty(in_block_1)
-                                        d1 = Generic_BFMA_TC( ...
-                                            in_block_1, NoExpBitsPrd, NoManBitsPrd, ...
+                                        d1 = Generic_BFMA_TC(NoExpBitsPrd, NoManBitsPrd, ...
                                             OutRoundMode, neab, stkbitenabled, ...
                                             NoManBitsOut, NoExpBitsOut, ...
-                                            a_block_1, b_block_1, 0, special_case,NoExpBitsIn);
-                                    else
-                                        d1 = 0;
-                                    end
+                                            a_block_1, b_block_1, 0,NoExpBitsIn);
+                                    
                                     
                                     %% ------------------ Second interleaved block ------------------
-                                    
-                                    % Re-check special-case flag
-                                    if abs(d1) > abs(in_block_2)
-                                        special_case = 0;
-                                    else
-                                        special_case = 1;
-                                    end
-                                    
-                                    % Insert previous output into block
-                                    in_block_2(end) = d1;
-                                    
-                                    % Sort again
-                                    [~, sort_ord] = sort(abs(in_block_2), 'descend');
-                                    in_block_2 = in_block_2(sort_ord);
                                     
                                     a_block_2 = a_block(seq2);
                                     b_block_2 = b_block(seq2);
                                     
-                                    % Remove zeros
-                                    in_block_2(in_block_2 == 0) = [];
-                                    
-                                    % Second half cycle
-                                    if ~isempty(in_block_2)
-                                        d2 = Generic_BFMA_TC( ...
-                                            in_block_2, NoExpBitsPrd, NoManBitsPrd, ...
+                                        d2 = Generic_BFMA_TC( NoExpBitsPrd, NoManBitsPrd, ...
                                             OutRoundMode, neab, stkbitenabled, ...
                                             NoManBitsOut, NoExpBitsOut, ...
-                                            a_block_2, b_block_2, d1, special_case,NoExpBitsIn);
-                                    else
-                                        d2 = 0;
-                                    end
+                                            a_block_2, b_block_2, d1,NoExpBitsIn);
+                                   
                                     
                                     %% ------------------ Final addition with C ------------------
                                     
-                                    in_block_3 = [d2, c];
                                     
-                                    [~, sort_ord] = sort(abs(in_block_3), 'descend');
-                                    in_block_3 = in_block_3(sort_ord);
                                     
-                                    in_block_3(in_block_3 == 0) = [];
-                                    % neab=2, stikybitenabled=1, prd=output precsision
-                                    if ~isempty(in_block_3)
-                                        d = Generic_BFMA_TC( ...
-                                            in_block_3, NoExpBitsOut, NoManBitsOut, ...
+                                    d = Generic_BFMA_TC( NoExpBitsOut, NoManBitsOut, ...
                                             cOutRoundMode, 2, 1, ...
                                             NoManBitsOut, NoExpBitsOut, ...
-                                            [], [], 0, 0, NoExpBitsIn);
+                                            d2, 1, c, NoExpBitsIn);
                                         
-                                    else
-                                        d = 0;
-                                    end
+                                    
                                     
                                     c = d;     % update accumulator
                                     
@@ -470,34 +360,12 @@ else % if M>2 && parallel_cores
                                 % Non-interleaved pattern (standard TC path)
                                 % ---------------------------------------------------------
                                 else
-                                    
-                                    % Detect special-case
-                                    if abs(c) > abs(in_block)
-                                        special_case = 0;
-                                    else
-                                        special_case = 1;
-                                    end
-                                    
-                                    % Append accumulator c
-                                    in_block(end + 1) = c;
-                                    
-                                    % Sort and remove zeros
-                                    [~, sort_ord] = sort(abs(in_block), 'descend');
-                                    in_block = in_block(sort_ord);
-                                    in_block(in_block == 0) = [];
-                                    
-                                    % Call TC block
-                                    
-                                    if ~isempty(in_block)
-                                        d = Generic_BFMA_TC( ...
-                                            in_block, NoExpBitsPrd, NoManBitsPrd, ...
+                                   
+                                        d = Generic_BFMA_TC(NoExpBitsPrd, NoManBitsPrd, ...
                                             OutRoundMode, neab, stkbitenabled, ...
                                             NoManBitsOut, NoExpBitsOut, ...
-                                            a_block, b_block, c, special_case,NoExpBitsIn);
-                                    else
-                                        d = 0;
-                                    end
-                                    
+                                            a_block, b_block, c,NoExpBitsIn);
+                                   
                                     c = d;     % recursive accumulation
                                 end
                                 
