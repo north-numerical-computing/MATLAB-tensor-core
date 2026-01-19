@@ -35,7 +35,7 @@ void gemm_recur(double alpha, double *A, double *B, double beta, double *C,
   alignment_mask_denorm_prod =
     UINT64_MAX << (52 - accum_prec - 1);
 
-  if (strcmp(def_params->frmode, "rz"))
+  if (strcmp(def_params->frmode, "rz")==0)
     outformat_opts->round = CPFLOAT_RND_TZ;
 
   int i, j, r, l;
@@ -52,7 +52,7 @@ void gemm_recur(double alpha, double *A, double *B, double beta, double *C,
 
 
   #pragma omp parallel default(none) \
-  shared(A, B, C, m, n, k, def_params) private(i, j, r, l)
+    shared(A, B, C, m, n, k, def_params, outformat_opts) private(i, j, r, l)
   {
     /* Allocate small temporary storage for tensor core inputs.
        +1 element in a for storing the elementwise products and c*/
@@ -69,6 +69,7 @@ void gemm_recur(double alpha, double *A, double *B, double beta, double *C,
             b[l] = B[j * k + r * def_params->fma + l];
           }
           block_FMA_nv(a, b, &C[j * m + i], def_params);
+          cpfloat(&C[j * m + i], &C[j * m + i], 1, outformat_opts);
         }
       }
 
@@ -77,5 +78,5 @@ void gemm_recur(double alpha, double *A, double *B, double beta, double *C,
   }
 
   /* Perform final rounding */
-  cpfloat(C, C, m * n, outformat_opts);
+  //cpfloat(C, C, m * n, outformat_opts);
 }
