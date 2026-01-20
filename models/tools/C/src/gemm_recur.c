@@ -26,17 +26,14 @@ void gemm_recur(double alpha, double *A, double *B, double beta, double *C,
   optstruct *outformat_opts = init_optstruct();
   strcpy(outformat_opts->format, outformat);
   cpfloat_populate_optstruct_from_format(outformat_opts);
+  if (strcmp(def_params->frmode, "rz")==0)
+    outformat_opts->round = CPFLOAT_RND_TZ;
   cpfloat(C, C, m * n, outformat_opts);
 
   /* Set some tensor core masks */
   accum_prec = outformat_opts->precision - 1 + def_params->neab;
-  alignment_mask_norm_prod =
-    UINT64_MAX << (52-accum_prec);
-  alignment_mask_denorm_prod =
-    UINT64_MAX << (52 - accum_prec - 1);
-
-  if (strcmp(def_params->frmode, "rz")==0)
-    outformat_opts->round = CPFLOAT_RND_TZ;
+  alignment_mask_norm_prod = UINT64_MAX << (52 - accum_prec);
+  alignment_mask_denorm_prod = UINT64_MAX << (52 - accum_prec - 1);
 
   int i, j, r, l;
 
@@ -76,7 +73,4 @@ void gemm_recur(double alpha, double *A, double *B, double beta, double *C,
     free(a);
     free(b);
   }
-
-  /* Perform final rounding */
-  //cpfloat(C, C, m * n, outformat_opts);
 }
