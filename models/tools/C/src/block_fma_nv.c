@@ -20,16 +20,9 @@ static inline double u2d(uint64_t u) {
 /* Perform inner product a*b+c using a tensor core model configured
    by def_params.
 
-   Inputs vectors of size def_params->fma are rounded to informat
-   using cpfloat.
+   Inputs a, b, and c are assumed to be exact.
 
    Elementwise product a*b is assumed to be kept exactly.
-
-   Output c is rounded to outformat using cpfloat.
-
-   The computation is performed in the fixed-point arithmetic
-   defined by various settings in def_params, rounded to outformat
-   using cpfloat, and written to c.
  */
 void block_FMA_nv(double *a, double *b, double *c, tc_params *def_params) {
 
@@ -44,6 +37,7 @@ void block_FMA_nv(double *a, double *b, double *c, tc_params *def_params) {
   frexp(a[def_params->fma], &expprod[def_params->fma]);
   if (c[0])
     expprod[def_params->fma]--;
+
   int maxexp;
   if (c[0]) {
     maxexp = expprod[def_params->fma];
@@ -55,7 +49,7 @@ void block_FMA_nv(double *a, double *b, double *c, tc_params *def_params) {
   int i;
   /* Compute element-wise product of a and b.
      Get exponents of a, b, and of the products.
-     Find the maximum product exponent.
+     Find the index of the product with the max exponent.
   */
   for (i = 0; i < def_params->fma; i++) {
     frexp(a[i], &expa[i]);
@@ -69,7 +63,7 @@ void block_FMA_nv(double *a, double *b, double *c, tc_params *def_params) {
     if (a[i])
       expprod[i]--;
 
-    // Find largest exponent within denormalised product exponents.
+    // Find largest exponent within (maybe denormalised) product exponents.
     int denorm_exp = expprod[i];
     if (expprod[i] != expa[i] + expb[i])
       denorm_exp--;
@@ -90,11 +84,11 @@ void block_FMA_nv(double *a, double *b, double *c, tc_params *def_params) {
     inc_prec = 1;
   }
 
+  // Return to normalised state.
   maxexp = expprod[largest_magn_index];
 
   /* Mask off significand bits to simulate
      significand alignment step of multi-term adders.
-     NOTE: Todo the case where even implicit bit needs to be truncated.
   */
   for (i = 0; i <= def_params->fma; i++) {
     uint64_t temp = d2u(a[i]);
