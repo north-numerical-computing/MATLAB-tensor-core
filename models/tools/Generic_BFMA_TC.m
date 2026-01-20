@@ -11,12 +11,7 @@ function d = Generic_BFMA_TC(NoExpBitsPrd, NoManBitsPrd, OutRoundMode, neab, stk
     else
         special_case=1;
     end
-    % if accumulation over a single column of B has generated previously Inf/-inf
-    % since the intial if check before for loop over columns has been passed
-    if any(isnan([r2,c])) || any(isinf([r2,c]))
-        d=sum(r);
-        return
-    end
+  
     
     % Initialise outputs
     d     = 0;
@@ -55,14 +50,14 @@ a_sig=pow2(a_block,-a_exp);b_sig=pow2(b_block,-b_exp);
 
 prod_exp=a_exp+b_exp; prod_sig=a_sig.*b_sig;
 
-if c~=0
-    sign_bits=double([prod_sig,c]<0);   
-else
-    sign_bits=double(prod_sig<0);
+sign_bits = (prod_sig < 0);
+if c ~= 0
+    sign_bits(end+1) = (c < 0);
 end        
+
 %% -------------------------
-  %  ACCUMULATION & ALIGNMENT
-    %  -------------------------
+%  ACCUMULATION & ALIGNMENT
+%%  -------------------------
     
     neab=neab+spc;
     [max_exp_unbiased, align_sigs] = fpbits_IEEE2(prod_sig,prod_exp,c,neab,stkbitenabled);
@@ -521,3 +516,4 @@ function [max_exp_unbiased,full_sig] = fpbits_IEEE2(x,x_exp,c,neab,stkbit)
            
             
 end
+
