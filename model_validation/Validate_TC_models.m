@@ -97,9 +97,8 @@ end
 dif=[dm(range)'-DGPU(range)];
 Model_GPU_error=sum(abs(dif))+Model_GPU_error;
 if Model_GPU_error~=0
-
-    error('Error occurred in model %s during simulation', model);
-
+    mismatch_indices=range(abs(dif)~=0);
+    error('Error occurred in model %s with format %s at index %d during simulation',GPUModel, inputformat, mismatch_indices(1));
 end
 
 end
