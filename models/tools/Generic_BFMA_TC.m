@@ -35,7 +35,11 @@ function d = Generic_BFMA_TC(NoExpBitsPrd, NoManBitsPrd, OutRoundMode, neab, stk
                     prod_sig=max(prod_sig);
 
                     [~,c_exp]=log2(abs(c));
-                    c_exp=c_exp-1;
+                    if c~=0
+                      c_exp=c_exp-1;
+                    else
+                      c_exp=-inf;
+                    end
                     
                 if prod_exp(1)>=(max(c_exp,emin_product)) && (prod_sig>=2) 
                     spc=1;
@@ -516,4 +520,5 @@ function [max_exp_unbiased,full_sig] = fpbits_IEEE2(x,x_exp,c,neab,stkbit)
            
             
 end
+
 
