@@ -9,7 +9,7 @@ outputformatc='fp32'; % c was considered always in fp32, if needs in fp16, round
 addpath tools\
 
 %% trimmed data
-baseDir = '..\data\model_validation\';
+baseDir = '';
 sub='';
 
 for gpunumber=1:numel(GPUModels)
