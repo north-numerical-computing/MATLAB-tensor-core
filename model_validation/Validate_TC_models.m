@@ -6,7 +6,8 @@ GPUModels={'Ada','H100','H200','A100','V100','B200'};
 outputformatd='fp32';
 outputformatc='fp32'; % c was considered always in fp32, if needs in fp16, roundtonearest was used in CUDA
 
-addpath tools\
+addpath ..\models\
+addpath ..\models\tools\
 
 %% trimmed data
 baseDir = '';
