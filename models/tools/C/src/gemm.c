@@ -120,6 +120,10 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) {
   k = mxGetN(prhs[1]);
   n = mxGetN(prhs[2]);
 
+  /* If k is shorter than fma length, reduce fma length to k */
+  if (k < def_params->fma)
+    def_params->fma = k;
+
   /* Create the output matrix */
   plhs[0] = mxCreateDoubleMatrix(m, n, mxREAL);
   double *outMatrix = mxGetDoubles(plhs[0]);
