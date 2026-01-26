@@ -13,8 +13,8 @@ outputformatd='fp32';
 outputformatc='fp32'; % c was considered always in fp32, if needs in fp16, roundtonearest was used in CUDA
 
 %% Add path of models and tools folder in the repo
-addpath ..\models\
-addpath ..\models\tools\
+addpath ../models/
+addpath ../models/tools/
 
 %% trimmed data baseDir path, 
 baseDir = '';
@@ -56,10 +56,10 @@ outputformatd=outputformatds{out_for_number};
 
 %% text files paths for D=AB+C, for all 4 elements
 folders = inputformat;
-fullPathA = [baseDir,GPUModel,'\' folders,'\',sub,'a_',GPUModel,'_',inputformat,'.txt'];
-fullPathB = [baseDir,GPUModel,'\' folders,'\',sub,'b_',GPUModel,'_',inputformat,'.txt'];
-fullPathC = [baseDir,GPUModel,'\' folders,'\',sub,'c_',GPUModel,'_',outputformatc,'.txt'];
-fullPathD = [baseDir,GPUModel,'\' folders,'\',sub,'d_',GPUModel,'_',outputformatd,'.txt'];
+fullPathA = [baseDir,GPUModel,'/' folders,'/',sub,'a_',GPUModel,'_',inputformat,'.txt'];
+fullPathB = [baseDir,GPUModel,'/' folders,'/',sub,'b_',GPUModel,'_',inputformat,'.txt'];
+fullPathC = [baseDir,GPUModel,'/' folders,'/',sub,'c_',GPUModel,'_',outputformatc,'.txt'];
+fullPathD = [baseDir,GPUModel,'/' folders,'/',sub,'d_',GPUModel,'_',outputformatd,'.txt'];
 A = readHexFloatFile(fullPathA);
 A=reshape(A,K,numel(A)/K);
 A=transpose(A);
@@ -83,10 +83,10 @@ enssize=numel(C(:,1));
 range=1:enssize;
 clear dm
 for count=range
-a=A(count,:);
-b=B(count,:);
+a=double(A(count,:));
+b=double(B(count,:));
 b=transpose(b);
-c=C(count);
+c=double(C(count));
 % change the function name here
 switch GPUModel
     case 'V100'
@@ -101,7 +101,6 @@ switch GPUModel
     [dm(count)]=AdaTC(1,a,b,1,c,inputformat,outputformatd);
     otherwise
 end
-count
 end
 
 dif=[dm(range)'-DGPU(range)];
