@@ -2,14 +2,21 @@ warning('off', 'all');
 clear all
 alpha=1;beta=1;
 Model_GPU_error=0;
+
+%% add more GPU models if want to validate those, can reduce the validation to a specific model by removing others
 GPUModels={'Ada','H100','H200','A100','V100','B200'};
+
+%% outputformat for D is restricted to fp32, for fp16 input, output is possible in fp16/fp32 below
 outputformatd='fp32';
+
+%% c is considered in fp32 for all input format and where need for fp16 like in fp16 input, RNE in CUDA is used, 
 outputformatc='fp32'; % c was considered always in fp32, if needs in fp16, roundtonearest was used in CUDA
 
+%% Add path of models and tools folder in the repo
 addpath ..\models\
 addpath ..\models\tools\
 
-%% trimmed data
+%% trimmed data baseDir path, 
 baseDir = '';
 sub='';
 
@@ -47,6 +54,7 @@ end
 for out_for_number=1:numel(outputformatds)
 outputformatd=outputformatds{out_for_number};
 
+%% text files paths for D=AB+C, for all 4 elements
 folders = inputformat;
 fullPathA = [baseDir,GPUModel,'\' folders,'\',sub,'a_',GPUModel,'_',inputformat,'.txt'];
 fullPathB = [baseDir,GPUModel,'\' folders,'\',sub,'b_',GPUModel,'_',inputformat,'.txt'];
@@ -71,6 +79,7 @@ DGPU = readIeeeFloatsFromFile(fullPathD);
 clear dm
 clc
 enssize=numel(C(:,1));
+%% can change the range to only simulate some data like range=1:10, first 10 elements are used
 range=1:enssize;
 clear dm
 for count=range
