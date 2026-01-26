@@ -2,7 +2,7 @@ warning('off', 'all');
 clear all
 alpha=1;beta=1;
 Model_GPU_error=0;
-GPUModels={'Ada'};
+GPUModels={'Ada','H100','H200','A100','V100','B200'};
 outputformatd='fp32';
 outputformatc='fp32'; % c was considered always in fp32, if needs in fp16, roundtonearest was used in CUDA
 
