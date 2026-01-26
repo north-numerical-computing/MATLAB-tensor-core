@@ -4,6 +4,7 @@
 #include <omp.h>
 #include "../include/gemm.h"
 #include "cpfloat_binary64.h"
+#include "mex.h"
 
 /* Set some tensor core masks */
 int accum_prec;
@@ -28,10 +29,18 @@ void gemm_recur(double alpha, double *A, double *B, double beta, double *C,
   cpfloat_populate_optstruct_from_format(outformat_opts);
   if (strcmp(def_params->frmode, "rz")==0)
     outformat_opts->round = CPFLOAT_RND_TZ;
+  else if (strcmp(def_params->frmode, "rne")==0)
+    outformat_opts->round = CPFLOAT_RND_NE;
   cpfloat(C, C, m * n, outformat_opts);
 
+    /* Set up internal accumulator format's base*/
+  optstruct *accumformat_opts = init_optstruct();
+  strcpy(accumformat_opts->format, "fp32");
+  cpfloat_populate_optstruct_from_format(accumformat_opts);
+  accumformat_opts->round = CPFLOAT_RND_TZ;
+
   /* Set some tensor core masks */
-  accum_prec = outformat_opts->precision - 1 + def_params->neab;
+  accum_prec = accumformat_opts->precision - 1 + def_params->neab;
   alignment_mask_norm_prod = UINT64_MAX << (52 - accum_prec);
   alignment_mask_denorm_prod = UINT64_MAX << (52 - accum_prec - 1);
 
@@ -49,7 +58,7 @@ void gemm_recur(double alpha, double *A, double *B, double beta, double *C,
 
 
   #pragma omp parallel default(none) \
-    shared(A, B, C, m, n, k, def_params, outformat_opts) private(i, j, r, l)
+    shared(A, B, C, m, n, k, def_params, accumformat_opts) private(i, j, r, l)
   {
     /* Allocate small temporary storage for tensor core inputs.
        +1 element in a for storing the elementwise products and c*/
@@ -66,11 +75,13 @@ void gemm_recur(double alpha, double *A, double *B, double beta, double *C,
             b[l] = B[j * k + r * def_params->fma + l];
           }
           block_FMA_nv(a, b, &C[j * m + i], def_params);
-          cpfloat(&C[j * m + i], &C[j * m + i], 1, outformat_opts);
+          cpfloat(&C[j * m + i], &C[j * m + i], 1, accumformat_opts);
         }
       }
 
     free(a);
     free(b);
   }
+
+  cpfloat(C, C, m * n, outformat_opts);
 }
