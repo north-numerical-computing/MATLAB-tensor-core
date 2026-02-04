@@ -1,125 +1,102 @@
-function d = Generic_BFMA_TC(NoExpBitsPrd, NoManBitsPrd, OutRoundMode, neab, stkbitenabled,NoManBitsOut,NoExpBitsOut,a_block,b_block,c,NoExpBitsIn)
+function d = Generic_BFMA_TC_v05(NoManBitsPrd, OutRoundMode, neab, stkbitenabled,NoManBitsOut,NoExpBitsOut,a_block,b_block,c,NoExpBitsIn)
+% This version computes product via significands separately
 
-       
-    %% products recomputed for denormalised product case
-    r2=a_block.*b_block; % second set of products
-    a_block(r2==0)=[];   
-    b_block(r2==0)=[];
-    r2(r2==0)=[];
-    if abs(c)>abs(r2)
-        special_case=0;
-    else
-        special_case=1;
-    end
-  
+%% Initialization
+emin_output=1-(2^(NoExpBitsOut-1)-1);
+emin_input=1-(2^(NoExpBitsIn-1)-1);
     
-    % Initialise outputs
-    d     = 0;
-    emin_output=1-(2^(NoExpBitsOut-1)-1);
-    emin_input=1-(2^(NoExpBitsIn-1)-1);
-    emin_product=1-(2^(NoExpBitsPrd-1)-1);
-    
-    %%  check for denormalised product --9:55 8/12/2025
-    spc=0;
-    if special_case==1 && ~isempty(r2)
-                    [~,a_exp]=log2(abs(a_block)); a_exp=a_exp-1;
-                    [~,b_exp]=log2(abs(b_block)); b_exp=b_exp-1;
-                    a_exp_u=max(a_exp,emin_input);
-                    b_exp_u=max(b_exp,emin_input);
-                    
-                    prod_exp=a_exp_u+b_exp_u;
-                    prod_exp_ind= prod_exp==max(prod_exp);
-                    prod_exp=prod_exp(prod_exp_ind);
-                    
-                    prod_sig=abs(r2(prod_exp_ind))./(2^prod_exp(1));
-                    prod_sig=max(prod_sig);
+% remove zero from the array
+prod_zeroIdxs=(a_block==0)|(b_block==0);
+a_block(prod_zeroIdxs)=[];   
+b_block(prod_zeroIdxs)=[];
 
-                    [~,c_exp]=log2(abs(c));
-                    if c~=0
-                      c_exp=c_exp-1;
-                    else
-                      c_exp=-inf;
-                    end
-                    
-                if prod_exp(1)>=(max(c_exp,emin_product)) && (prod_sig>=2) 
-                    spc=1;
-                end
- else
-        [~,a_exp]=log2(abs(a_block)); a_exp=a_exp-1; 
-        [~,b_exp]=log2(abs(b_block)); b_exp=b_exp-1;
-        
+% if all are zero, return with d=0; 
+if isempty(a_block) && c==0
+    d=0;
+return
 end
 
-a_sig=pow2(a_block,-a_exp);b_sig=pow2(b_block,-b_exp); 
-
-prod_exp=a_exp+b_exp; prod_sig=a_sig.*b_sig;
+% input a and b exponent and significands computation
+a_block_abs=abs(a_block);       b_block_abs=abs(b_block);
+[~,a_exp]=log2(a_block_abs);    a_exp=a_exp-1; a_exp=max(a_exp,emin_input);
+[~,b_exp]=log2(b_block_abs);    b_exp=b_exp-1; b_exp=max(b_exp,emin_input);
+a_sig=pow2(a_block,-a_exp);     b_sig=pow2(b_block,-b_exp);
+prod_sig=a_sig.*b_sig;          prod_exp=a_exp+b_exp; 
 
 sign_bits = (prod_sig < 0);
 if c ~= 0
     sign_bits(end+1) = (c < 0);
-end        
-
+end       
 %% -------------------------
-%  ACCUMULATION & ALIGNMENT
-%%  -------------------------
-    
-    neab=neab+spc;
-    [max_exp_unbiased, align_sigs] = fpbits_IEEE2(prod_sig,prod_exp,c,neab,stkbitenabled);
-    sum_unormalised=dot(double(align_sigs),(1-2*(sign_bits)));
-    sum_unormalised_uint64=uint64(abs(sum_unormalised));
-    sum_normalised=sum_unormalised/2^(NoManBitsPrd+neab+stkbitenabled);   
-    sOut=sum_normalised<0;
-    
-    
+  %  ACCUMULATION & ALIGNMENT
+%  -------------------------
+[max_exp_unbiased, align_sigs,neab] = fpbits_IEEE2(prod_sig,prod_exp,c,neab,stkbitenabled);
+sum_unormalised=dot(double(align_sigs),(1-2*(sign_bits)));
+sum_unormalised_uint64=uint64(abs(sum_unormalised));
+sum_normalised=sum_unormalised/2^(NoManBitsPrd+neab+stkbitenabled);   
+sOut=sum_normalised<0;
+        
     if sum_unormalised==0
         d=0;
         return
     end
     
     
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    % 
+    
+    %=====================================================================
     %% Normalisation
-    %
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %=====================================================================
     [~,total_exp]=log2(abs(sum_normalised)); total_exp=total_exp-1;
     dexp=max_exp_unbiased+total_exp;
     if total_exp>0
         temp_str=dec2bin(sum_unormalised_uint64);
         dbits=[temp_str(1),'.',temp_str(2:end)];
-    else
+    else % normalised even if supposed to be denormalised
         total_exp=abs(total_exp);
         sum_unormalised_uint64=bitshift(sum_unormalised_uint64,total_exp);
         temp_str=dec2bin(sum_unormalised_uint64);
         dbits=[temp_str(1),'.',temp_str(2:end)];
     end
  
-    
-    % subnormal range, 
+    %============================================================
+    % make subnormal if exponent less than minimum output exponent
+    %=============================================================
     if dexp<emin_output
         min_shift=dexp-emin_output;
         [dbits]=subnormalsignificand(dbits,abs(min_shift),0);
         dexp=emin_output;
     end   
     
+    %=============================================================
+    % Rounding 
+    %=============================================================
     if ~strcmp(OutRoundMode,'rz') 
         [dbits,dexp] = ieeeround(dbits, OutRoundMode, NoManBitsOut, sOut, double(dexp));
     end
     
+     %============================================================
+    % make subnormal post rounding if exponent less than minimum output exponent
+    %=============================================================
+
     if dexp<emin_output
         min_shift=dexp-emin_output;
         [dbits]=subnormalsignificand(dbits(1:2+NoManBitsOut),abs(min_shift),1);
         dexp=emin_output;
     end 
+    
     if isempty(dexp)
-    dexp=0;
+         dexp=0;
     end
-    % compute decimal 
+
+    %======================================================================
+    % compute the decimal value
+    %======================================================================
     d= ((dbits(1)-'0')+bin2dec(dbits(3:NoManBitsOut+2))*2^(-NoManBitsOut))*2^double(dexp);
     if sOut==1
             d=-d;
     end
    
+    
     % Encode exponent (bias applied)
     dexp = dexp + (2^(NoExpBitsOut - 1) - 1);
     %-----------------------------------
@@ -130,9 +107,7 @@ end
          if sOut==1
             d=-d;
          end
-         % uncomment to see dexp_bits 
-        % dexp = dec2bin(dexp, NoExpBitsOut);
-        %dbits=[]; % empty on purpose, 
+    
     return
     end
 
@@ -520,5 +495,6 @@ function [max_exp_unbiased,full_sig] = fpbits_IEEE2(x,x_exp,c,neab,stkbit)
            
             
 end
+
 
 
