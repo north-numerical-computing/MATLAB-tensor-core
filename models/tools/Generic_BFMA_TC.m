@@ -1,4 +1,4 @@
-function d = Generic_BFMA_TC_v05(NoManBitsPrd, OutRoundMode, neab, stkbitenabled,NoManBitsOut,NoExpBitsOut,a_block,b_block,c,NoExpBitsIn)
+function d = Generic_BFMA_TC(NoManBitsPrd, OutRoundMode, neab, stkbitenabled,NoManBitsOut,NoExpBitsOut,a_block,b_block,c,NoExpBitsIn)
 % This version computes product via significands separately
 
 %% Initialization
@@ -495,6 +495,7 @@ function [max_exp_unbiased,full_sig] = fpbits_IEEE2(x,x_exp,c,neab,stkbit)
            
             
 end
+
 
 
 
