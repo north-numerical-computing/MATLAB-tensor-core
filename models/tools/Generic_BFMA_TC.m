@@ -440,62 +440,92 @@ function [exp_unbiased, BitCharArray] = fpbits_IEEE(x, NoManBits)
 end
 
 
-function [max_exp_unbiased,full_sig] = fpbits_IEEE2(x,x_exp,c,neab,stkbit)
-%IEEE754_PARTS Extract IEEE-754 exponent + significand for half or single precision.
+function [maxExp, alignedSig, neab] = fpbits_IEEE2(x, xExp, c, neab, stkbit)
+%FPBITS_IEEE2 Extract and align IEEE-754 significands with exponents
 %
-%   [exp_unbiased, significand_bits] = ieee754_parts(x, 'single')
-%   [exp_unbiased, significand_bits] = ieee754_parts(x, 'half')
+% Inputs:
+%   x       : array of values (single precision assumed)
+%   xExp    : corresponding unbiased exponents for x
+%   c       : optional scalar to include in alignment
+%   neab    : integer counter (used for extra bit allowance)
+%   stkbit  : boolean flag to include sticky bits
 %
-%   exp_unbiased     : unbiased exponent (decimal)
-%   significand_bits : bit strings with implicit bit included (normal)
-%                      or 0.xxx… (subnormal)
-%
-%   Handles normals, subnormals, zeros, and preserves vectorization.
-            
-            
+% Outputs:
+%   maxExp     : maximum exponent after alignment
+%   alignedSig : aligned significands (uint32)
+%   neab       : updated extra bit allowance
 
-            bias     = 127;
-            implicit_bit = uint32(8388608);  % 1 << 23
-            
-            
-            %% for products
-            x=single(x);
-            u = typecast(x, 'uint32');
-            exp_raw  = bitand(bitshift(u, -23), uint32(255));     % 8 bits
-            exp_unbiased = int16(exp_raw) - 127 + int16(x_exp);   % stay integer
-            frac     = bitand(u,implicit_bit-1); % equal 2^23-1               % 23 bits
-            full_sig = frac + uint32(exp_raw ~= 0) * implicit_bit;   
-            %% c is done indepdent
-            if c~=0
-            xc=single(c);
-            uc = typecast(xc, 'uint32');
-            exp_raw_c  = bitand(bitshift(uc, -23), uint32(255));     % 8 bit
-            exp_c  = int16(exp_raw_c)-127;     % 8 bits
-            exp_c(exp_c == -127)=-126;
-            frac_c     = bitand(uc,implicit_bit-1); % equal 2^23-1               % 23 bits
-            full_sig_c = frac_c + uint32(exp_raw_c ~= 0) * implicit_bit;
-            full_sig=[full_sig,full_sig_c];
-            % append c_exp
-            exp_unbiased=[exp_unbiased,exp_c];
-            end
-            
-            max_exp_unbiased=max(exp_unbiased);
-            % shift of the exponents
-            exp_shifts = max_exp_unbiased - exp_unbiased;
-            lost_mask=uint32(2.^exp_shifts-1);
-            
-            full_sig=bitshift(full_sig,neab);
-            if stkbit
-             lost_bits=bitand(full_sig,lost_mask)~=0;
-             full_sig=bitshift(full_sig,-exp_shifts)*2^stkbit+uint32(lost_bits);
-            else
-             full_sig=bitshift(full_sig,-exp_shifts);
-            end
-            
-           
-            
+    % Take absolute values
+    x = abs(x);
+
+    %% Constants
+    FP32_BIAS      = int16(127);
+    FP32_IMPLICIT = bitshift(uint32(1), 23);  % 2^23         % 1 << 23
+    FP32_FRAC_MASK = FP32_IMPLICIT - 1;        % mask for lower 23 bits
+
+    %% === Product path ===
+    expVals    = int16(xExp);                  % unbiased exponents
+    sigVals    = uint32(x .* 8388608);        % convert to 23-bit significands
+    maxExpVal  = max(expVals);                % maximum exponent among products
+    idxMaxExp  = (expVals == maxExpVal);      
+    maxProduct = max(x(idxMaxExp));           % largest product for normalization
+
+    %% === Optional scalar 'c' ===
+    if c ~= 0
+        cUint32  = typecast(single(c), 'uint32');
+
+        rawExpC  = bitand(bitshift(cUint32, -23), uint32(255));
+        expC     = int16(rawExpC) - FP32_BIAS;
+        expC(expC == -127) = -126;           % subnormal correction
+
+        fracC    = bitand(cUint32, FP32_FRAC_MASK);
+        sigC     = fracC + uint32(rawExpC ~= 0) * FP32_IMPLICIT;
+        if ~isempty(maxExpVal)
+        spcFlag  = maxExpVal >= expC;
+        else
+          spcFlag = false;
+        end% extra bit allowance
+    else
+        spcFlag  = ~isempty(maxExpVal);
+        expC     = int16.empty;
+        sigC     = uint32.empty;
+    end
+
+    % Only allow extra bit if largest product >= 2
+    
+     spcFlag = spcFlag && (maxProduct >= 2);
+    
+    %% === Normalize significands >= 2 ===
+    exceedMask = (x >= 2);
+    if any(exceedMask)
+        sigVals(exceedMask)   = bitshift(sigVals(exceedMask), -1);
+        expVals(exceedMask)   = expVals(exceedMask) + 1;
+    end
+
+    %% === Combine products with optional scalar 'c' ===
+    expVals    = [expVals, expC];
+    sigVals    = [sigVals, sigC];
+    neab       = neab + spcFlag;
+
+    %% === Alignment ===
+    maxExp     = max(expVals);
+    shiftExps  = maxExp - expVals;
+
+    if neab ~= 0
+        sigVals = bitshift(sigVals, neab);
+    end
+
+    %% === Sticky bit handling ===
+    if stkbit
+        lostMask   = bitshift(uint32(1), shiftExps) - 1;
+        lostBits   = bitand(sigVals, lostMask) ~= 0;
+
+        sigVals    = bitshift(sigVals, -shiftExps);
+        alignedSig = sigVals * uint32(2^stkbit) + uint32(lostBits);
+    else
+        alignedSig = bitshift(sigVals, -shiftExps);
+    end
+
 end
-
-
 
 
