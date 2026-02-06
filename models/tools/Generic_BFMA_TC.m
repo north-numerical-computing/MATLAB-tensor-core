@@ -370,75 +370,6 @@ end
 end
 
 
-%--------------------------------------------------------------------
-%%
-%--------------------------------------------------------------------
-function [exp_unbiased, BitCharArray] = fpbits_IEEE(x, NoManBits)
-%IEEE754_PARTS Extract IEEE-754 exponent + significand for half or single precision.
-%
-%   [exp_unbiased, significand_bits] = ieee754_parts(x, 'single')
-%   [exp_unbiased, significand_bits] = ieee754_parts(x, 'half')
-%
-%   exp_unbiased     : unbiased exponent (decimal)
-%   significand_bits : bit strings with implicit bit included (normal)
-%                      or 0.xxx… (subnormal)
-%
-%   Handles normals, subnormals, zeros, and preserves vectorization.
-
-    if nargin < 2
-        error('Precision must be ''single'' or ''half''.');
-    end
-    N=numel(x);
-    if NoManBits==23
-            
-            x=single(x);
-
-            u = typecast(x, 'uint32');
-            exp_raw  = bitand(bitshift(u, -23), uint32(255));     % 8 bits
-            frac     = bitand(u, uint32(2^23 - 1));               % 23 bits
-            bias     = 127;
-            implicit_bit = uint32(2^23);  % 1 << 23
-            normal_mask = exp_raw ~= 0;
-            implicit = zeros(size(u),'uint32');
-            implicit(normal_mask) = implicit_bit;
-
-            full_sig = implicit + frac;   % 24 bits
-
-
-
-            significand_bits = dec2bin(full_sig, 24);
-            BitCharArray=[significand_bits(:,1),'.'+zeros(N,1),significand_bits(:,2:end)];
-            exp_unbiased = double(exp_raw) - bias;
-            exp_unbiased(exp_unbiased==-127)=-126;
-    elseif NoManBits==10
-            % IEEE754 half precision: 1 | 5 | 10
-            % MATLAB stores half as uint16 internally? 
-            % We use typecast on uint16 representation.
-            x=half(x);
-            
-            u = typecast(x, 'uint16');
-
-            exp_raw  = bitand(bitshift(u, -10), uint16(31));     % 5 bits
-            frac     = bitand(u, uint16(2^10 - 1));              % 10 bits
-            bias     = 15;
-
-            implicit_bit = uint16(2^10);  % 1 << 10
-
-            normal_mask = exp_raw ~= 0;
-            implicit = zeros(size(u),'uint16');
-            implicit(normal_mask) = implicit_bit;
-
-            full_sig = implicit + frac;   % 11 bits
-            significand_bits = dec2bin(full_sig, 11);
-            BitCharArray=[significand_bits(:,1),'.' + zeros(N,1),significand_bits(:,2:end)];
-            exp_unbiased = double(exp_raw) - bias;
-            exp_unbiased(exp_unbiased==-15)=-14;
-
-    else
-            error('Precision must be ''single'' or ''half''.');
-    end
-end
-
 
 function [maxExp, alignedSig, neab] = fpbits_IEEE2(x, xExp, c, neab, stkbit)
 %FPBITS_IEEE2 Extract and align IEEE-754 significands with exponents
@@ -527,5 +458,6 @@ function [maxExp, alignedSig, neab] = fpbits_IEEE2(x, xExp, c, neab, stkbit)
     end
 
 end
+
 
 
