@@ -418,8 +418,8 @@ function [maxExp, alignedSig, neab] = fpbits_IEEE2(x, xExp, c, neab, stkbit)
         end% extra bit allowance
     else
         spcFlag  = ~isempty(maxExpVal);
-        expC     = int16.empty;
-        sigC     = uint32.empty;
+        expC     = [];
+        sigC     = [];
     end
 
     % Only allow extra bit if largest product >= 2
@@ -447,17 +447,26 @@ function [maxExp, alignedSig, neab] = fpbits_IEEE2(x, xExp, c, neab, stkbit)
     end
 
     %% === Sticky bit handling ===
-    if stkbit
-        lostMask   = bitshift(uint32(1), shiftExps) - 1;
-        lostBits   = bitand(sigVals, lostMask) ~= 0;
+   validshifts_2 = shiftExps<=31; % otherwise octave miss up
+            if stkbit
+                bitlen=24+neab;
+                validshifts= shiftExps<=bitlen;
+                % invalid shifts lost all bits
+                lostMask(validshifts)   = bitshift(uint32(1), shiftExps(validshifts)) - 1;
+                lostMask(~validshifts)  = 2^(bitlen)-1;
+                lostBits   = bitand(sigVals, lostMask) ~= 0;
+                
+                sigVals(validshifts_2)  = bitshift(sigVals(validshifts_2), -shiftExps(validshifts_2));
+                sigVals(~validshifts_2) = 0;
+                alignedSig = sigVals * uint32(2^stkbit) + uint32(lostBits);
+            else
 
-        sigVals    = bitshift(sigVals, -shiftExps);
-        alignedSig = sigVals * uint32(2^stkbit) + uint32(lostBits);
-    else
-        alignedSig = bitshift(sigVals, -shiftExps);
-    end
+                alignedSig(validshifts_2) = bitshift(sigVals(validshifts_2), -shiftExps(validshifts_2));
+                alignedSig(~validshifts_2) = 0; 
+            end
 
 end
+
 
 
 
