@@ -467,6 +467,3 @@ function [maxExp, alignedSig, neab] = fpbits_IEEE2(x, xExp, c, neab, stkbit)
 
 end
 
-
-
-
