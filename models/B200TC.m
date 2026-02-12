@@ -63,8 +63,8 @@ elseif ismember(informat, {'tf32', 'tensorfloat32'})
 elseif ismember(informat, {'fp8-e5m2','fp8-e4m3','e5m2','e4m3'}) 
         % FMA size is 16, but interleaved pattern is used to join two
         % 16-element vectors.
-        def_params.fma = 16; % due to interleaved pattern, this is doubled in inner product computation
-        def_params.inter_pattern=1;
+        def_params.fma = 32; % due to interleaved pattern, this is doubled in inner product computation
+        def_params.inter_pattern=0; % if inter_pattern is made 1, fma will be 16 and will using HMMA i.e. fp16 tensor core inside B200, if 0, it uses tcgen05 i.e. inherent fp8 cores
         
         if exist('outformat', 'var')
             if ismember(outformat, {'fp16','binary16','half'})
