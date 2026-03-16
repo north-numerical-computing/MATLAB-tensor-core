@@ -19,7 +19,7 @@ It is based on the generalised testing methodology [2] which determines the foll
 * Supported rounding modes
 * Effective FMA size (i.e., number of terms accumulated before a single normalization)
 
-The [model_validation](data/model_validation) contains part of the model validation data that was used in [1] to refine the models and verify the bit-accurate behaviour against the corresponding GPUs. Full-sized experiments and data is not stored in this repository but is available on request.
+The [model_validation](data/model_validation) contains part of the model validation data that was used in [1] to refine the models and verify the bit-accurate behaviour against the corresponding GPUs. Full-sized experiments and data is not stored in this repository due to size limitations.
 
 The [experiments](experiments/) directory contains various experiments with some of the [models](models/) that were performed to plot the results in [1]. These can serve as examples on how to utilise the models.
 
