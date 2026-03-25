@@ -29,6 +29,12 @@ The [experiments](experiments/) directory contains various experiments with some
 2. Add [models/](models/) to the MATLAB search path.
 3. Add [models/tools](models/tools) to the MATLAB search path.
 
+## Octave Support and Installation
+1. The package has been tested in GNU Octave.
+2. It runs without any modifications.
+3. Octave results are fully consistent with the validated outputs.
+Installation and usage procedure is identical to that of the MATLAB.
+
 ## Example: Using in-built models
 
 The following example rounds two matrices to fp16 and multiplies them using the model of the B200 tensor core.
