@@ -30,11 +30,9 @@ The [experiments](experiments/) directory contains various experiments with some
 3. Add [models/tools](models/tools) to the MATLAB search path.
 
 ## Compatibility & Validation in Octave GNU and Python
-1. Fully compatible with GNU Octave (no code modifications required)
-2. Validated in Python using:
-a.  MATLAB Engine API
-b.  Oct2Py
-3. Consistent and reproducible results across all environments
+1. Fully compatible with GNU Octave (no code modifications required) and validated on one million samples for every model.
+2. Package can easily be used in Python either via (a).  MATLAB Engine API or (b) Oct2Py
+3. Consistent and produce same results across all three.
 
 ## Example: Using in-built models
 
