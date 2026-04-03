@@ -26,11 +26,12 @@ prod_sig=a_sig.*b_sig;          prod_exp=a_exp+b_exp;
 sign_bits = (prod_sig < 0);
 if c ~= 0
     sign_bits(end+1) = (c < 0);
-end       
+end
 %% -------------------------
   %  ACCUMULATION & ALIGNMENT
 %  -------------------------
-[max_exp_unbiased, align_sigs,neab] = fpbits_IEEE2(prod_sig,prod_exp,c,neab,stkbitenabled);
+[max_exp_unbiased, align_sigs] = fpbits_IEEE(prod_sig,prod_exp,c,neab,stkbitenabled);
+%=========================================================================
 sum_unormalised=dot(double(align_sigs),(1-2*(sign_bits)));
 sum_unormalised_uint64=uint64(abs(sum_unormalised));
 sum_normalised=sum_unormalised/2^(NoManBitsPrd+neab+stkbitenabled);   
@@ -66,7 +67,7 @@ sOut=sum_normalised<0;
         [dbits]=subnormalsignificand(dbits,abs(min_shift),0);
         dexp=emin_output;
     end   
-    
+   
     %=============================================================
     % Rounding 
     %=============================================================
@@ -95,8 +96,7 @@ sOut=sum_normalised<0;
     if sOut==1
             d=-d;
     end
-   
-    
+  
     % Encode exponent (bias applied)
     dexp = dexp + (2^(NoExpBitsOut - 1) - 1);
     %-----------------------------------
@@ -349,7 +349,6 @@ else
     %firstOne = find(split_array{2} == '1', 1, 'first');
     firstOne = find(resultStr(decimalpoint+1:end) == '1', 1, 'first');
     exp_shift_result=-firstOne;
-    
     if isempty(firstOne)
     % all zeros no firstOne
         d_in_bits=resultStr; % no change
@@ -359,19 +358,14 @@ else
 
          extracharappend=charCount-numel(d_in_bits);
          d_in_bits=[d_in_bits,char(zeros(1,extracharappend)+'0')];
-    end
-
-    
+    end 
 end
-
- 
- final_exp_actual=largest_exp+exp_shift_result;
+final_exp_actual=largest_exp+exp_shift_result;
 
 end
 
 
-
-function [maxExp, alignedSig, neab] = fpbits_IEEE2(x, xExp, c, neab, stkbit)
+function [maxExp, alignedSig] = fpbits_IEEE(x, xExp, c, neab, stkbit)
 %FPBITS_IEEE2 Extract and align IEEE-754 significands with exponents
 %
 % Inputs:
@@ -397,10 +391,7 @@ function [maxExp, alignedSig, neab] = fpbits_IEEE2(x, xExp, c, neab, stkbit)
     %% === Product path ===
     expVals    = int16(xExp);                  % unbiased exponents
     sigVals    = uint32(x .* 8388608);        % convert to 23-bit significands
-    maxExpVal  = max(expVals);                % maximum exponent among products
-    idxMaxExp  = (expVals == maxExpVal);      
-    maxProduct = max(x(idxMaxExp));           % largest product for normalization
-
+    
     %% === Optional scalar 'c' ===
     if c ~= 0
         cUint32  = typecast(single(c), 'uint32');
@@ -410,47 +401,35 @@ function [maxExp, alignedSig, neab] = fpbits_IEEE2(x, xExp, c, neab, stkbit)
         expC(expC == -127) = -126;           % subnormal correction
 
         fracC    = bitand(cUint32, FP32_FRAC_MASK);
-        sigC     = fracC + uint32(rawExpC ~= 0) * FP32_IMPLICIT;
-        if ~isempty(maxExpVal)
-        spcFlag  = maxExpVal >= expC;
-        else
-          spcFlag = false;
-        end% extra bit allowance
+        sigC     = fracC + uint32(rawExpC ~= 0) * FP32_IMPLICIT;   
     else
-        spcFlag  = ~isempty(maxExpVal);
+       
         expC     = [];
         sigC     = [];
     end
-
-    % Only allow extra bit if largest product >= 2
-    
-     spcFlag = spcFlag && (maxProduct >= 2);
-    
-    %% === Normalize significands >= 2 ===
-    exceedMask = (x >= 2);
-    if any(exceedMask)
-        sigVals(exceedMask)   = bitshift(sigVals(exceedMask), -1);
-        expVals(exceedMask)   = expVals(exceedMask) + 1;
-    end
-
     %% === Combine products with optional scalar 'c' ===
     expVals    = [expVals, expC];
     sigVals    = [sigVals, sigC];
-    neab       = neab + spcFlag;
+    
+    
 
     %% === Alignment ===
     maxExp     = max(expVals);
+    %% == putting a limit on the max exponent =====
+    if maxExp<-133 % considering bf16 
+        maxExp=-133;
+    end
     shiftExps  = maxExp - expVals;
-
+    
     if neab ~= 0
         sigVals = bitshift(sigVals, neab);
     end
 
     %% === Sticky bit handling ===
-   validshifts_2 = shiftExps<=31; % otherwise octave miss up
+    validshifts_2 = shiftExps<=31; % otherwise octave miss up
             if stkbit
                 bitlen=24+neab;
-                validshifts= shiftExps<=bitlen;
+                validshifts= shiftExps<=bitlen; %27 for H100
                 % invalid shifts lost all bits
                 lostMask(validshifts)   = bitshift(uint32(1), shiftExps(validshifts)) - 1;
                 lostMask(~validshifts)  = 2^(bitlen)-1;
@@ -466,4 +445,6 @@ function [maxExp, alignedSig, neab] = fpbits_IEEE2(x, xExp, c, neab, stkbit)
             end
 
 end
+
+
 
