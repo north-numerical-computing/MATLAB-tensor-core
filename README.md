@@ -79,7 +79,6 @@ While the B200 tensor core model comes with this toolbox, below is a minimal exa
 def_params.fma    = 16;      % Fused multiply-add (FMA) size
 def_params.neab   = 2;       % TC extra alignment bits
 def_params.frmode = 'rz';    % TC final rounding mode
-def_params.inter_pattern=1;  % Interleave two 16-element vectors
 
 D = GEMM(alpha, A, B, beta, C, informat, outformat, def_params);
 ```
