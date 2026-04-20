@@ -16,12 +16,12 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
         % nothing
     end
 
-    
     % CPFloat settings for the default input format.
     def_inopts.format = 'fp16';
     def_inopts.round  = 1; 
     def_inopts.infinity=1;
 
+        
     % CPFloat settings for the default output format.
     def_outopts.format = 'fp32';
     def_outopts.round  = 4;
@@ -82,43 +82,31 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
     NoExpBitsOut = fmt.expBits;
     fmt = fpformatinfo(informat);
     NoExpBitsIn = fmt.expBits;
-    NoManBitsPrd = 23; % assuming single precision product,
-    NoExpBitsPrd = 8;  % assuming single precision product
+    NoManBitsIn = fmt.manBits;
+
     %% --------------------------------------------------------
     % Model parameter extraction
     % ---------------------------------------------------------
     nfma           = params.fma;
     neab           = params.neab;
     OutRoundMode   = lower(params.frmode);
-        inter_pattern = 0;        % default
-    if isfield(params,'inter_pattern'), inter_pattern = params.inter_pattern; end
+    
+    % If model parameter is not provided, it is assumed to be NVIDIA by default
+    if isfield(params, 'model') && ~isempty(params.model)
+        Model = params.model;
+    else
+        Model = 'NVIDIA'; % default NVIDIA model will run
+    end
 
-        stkbitenabled = 0;        % default
+    % this concept is not used at the moment, but was in inter_leaved pattern parameter for Hopper/Blackwell for fp8 via HMMA (fp16) TC
+    stkbitenabled = 0;        % default// may be used in future
     if isfield(params,'stkbitenabled'), stkbitenabled = params.stkbitenabled; end
 
-    %% --------------------------------------------------------
-    % Special cases
-    % ---------------------------------------------------------
-
-    % Special case 1: interleaved pattern → C added with different rounding mode
-        % Fixed to RN according to H200/H100/B200
-        cOutRoundMode = 'rne';
-        % Check interleaved pattern
-        if inter_pattern==1 
-            nfma=2*nfma;
-        end
-        seq  = 0:(nfma-1);
-        seq1 = seq(mod(seq, 4) < 2);
-        seq1 = seq1 + 1;
-        seq  = seq + 1;
-        seq2 = seq(seq1 + 2);
-    
-    % Special case 2: Ada / L40S where number of alignment bits is negative for fp8
+    % Special case: Ada / L40S where number of alignment bits is negative for fp8
     if neab < 0
-        if NoManBitsOut == NoManBitsPrd
             % Special case of Ada/L40S
             NoManBitsOut = NoManBitsOut + neab;
-        end
+        
     end
 
     %% --------------------------------------------------------
@@ -164,13 +152,11 @@ if M>2 && exist('ver','file') && ~isempty(ver('parallel')) && exist('feature') &
                         b = [reshape(B(:, n), 1, []),zeros(1,pad_size)];    % take n-th column of B
                         c = C(m, n);                    % element C(m, n)
                         
-                        
-                        
                         K = numel(a);
+                         % for detecting +-Inf at the starting to avoid TC/MC computation and save time
                         r = a .* b;                     % elementwise multiply
-                        
                         combined=[r,c];
-                        if any(isnan(combined)) || any(isinf(combined))
+                        if  any(isnan(combined)) || any(isinf(combined))
                             if any(isnan(combined))
                                 D(m,n) = NaN;           % NaN takes priority
                             elseif any(combined == Inf) && any(combined == -Inf)
@@ -195,64 +181,17 @@ if M>2 && exist('ver','file') && ~isempty(ver('parallel')) && exist('feature') &
                                 a_block =  a((k - 1) * nfma + 1 : k * nfma);
                                 b_block =  b((k - 1) * nfma + 1 : k * nfma);
                                 
-                                % ---------------------------------------------------------
-                                % Special case: interleaved pattern (H100 / B200 / H200)
-                                % ---------------------------------------------------------
-                                if inter_pattern
-                                    
-                                    %% ------------------ First interleaved block ------------------
-                                    a_block_1 = a_block(seq1);
-                                    b_block_1 = b_block(seq1);
-                                    
-                                    % First half cycle
-                                   
-                                        d1 = Generic_BFMA_TC(NoExpBitsPrd, NoManBitsPrd, ...
-                                            OutRoundMode, neab, stkbitenabled, ...
-                                            NoManBitsOut, NoExpBitsOut, ...
-                                            a_block_1, b_block_1,0,NoExpBitsIn);
-                                    
-                                    
-                                    %% ------------------ Second interleaved block ------------------
-                                    
-                                    a_block_2 = a_block(seq2);
-                                    b_block_2 = b_block(seq2);
-                                     % Second half cycle
-                                    
-                                        d2 = Generic_BFMA_TC(NoManBitsPrd, ...
-                                            OutRoundMode, neab, stkbitenabled, ...
-                                            NoManBitsOut, NoExpBitsOut, ...
-                                            a_block_2, b_block_2, d1,NoExpBitsIn);
-                                    
-                                    
-                                    %% ------------------ Final addition with C ------------------
-                                    
-                                    
-                                    
-                                    d = Generic_BFMA_TC(NoManBitsOut, ...
-                                            cOutRoundMode, 2, 1, ...
-                                            NoManBitsOut, NoExpBitsOut, ...
-                                            d2, 1, c,NoExpBitsIn);
-                                        
-                                    
-                                    
-                                    c = d;     % update accumulator
-                                
-                            % ---------------------------------------------------------
-                            % Non-interleaved pattern (standard TC path)
-                            % ---------------------------------------------------------
-                            else
-                                
                                 % Call TC block
                                 
-                                    d = Generic_BFMA_TC(NoManBitsPrd, ...
+                                    d = Generic_BFMA_TC_Full(  NoManBitsIn, ...
                                         OutRoundMode, neab, stkbitenabled, ...
                                         NoManBitsOut, NoExpBitsOut, ...
-                                        a_block, b_block, c,NoExpBitsIn);
+                                        a_block, b_block, c,NoExpBitsIn,Model);
                                 
                                 
                                 c = d;     % recursive accumulation
                             
-                            end % int pattern
+                            
                             
                         end     % end k loop
                         
@@ -287,6 +226,7 @@ else % if M>2 && parallel_cores
                     
                     
                     K = numel(a);
+                    % for detecting +-Inf at the starting to avoid TC/MC computation and save time
                     r = a .* b;                     % elementwise multiply
                     combined=[r,c];
                     if any(isnan(combined)) || any(isinf(combined))
@@ -315,59 +255,14 @@ else % if M>2 && parallel_cores
                                 a_block =  a((k - 1) * nfma + 1 : k * nfma);
                                 b_block =  b((k - 1) * nfma + 1 : k * nfma);
                                 
-                                % ---------------------------------------------------------
-                                % Special case: interleaved pattern (H100 / B200 / H200)
-                                % ---------------------------------------------------------
-                                if inter_pattern
-                                    
-                                    %% ------------------ First interleaved block ------------------
-                                    
-                                    
-                                    a_block_1 = a_block(seq1);
-                                    b_block_1 = b_block(seq1);
-                                    
-                                        d1 = Generic_BFMA_TC( NoManBitsPrd, ...
+                                                                 
+                                        d = Generic_BFMA_TC_Full(  NoManBitsIn, ...
                                             OutRoundMode, neab, stkbitenabled, ...
                                             NoManBitsOut, NoExpBitsOut, ...
-                                            a_block_1, b_block_1, 0,NoExpBitsIn);
-                                    
-                                    
-                                    %% ------------------ Second interleaved block ------------------
-                                    
-                                    a_block_2 = a_block(seq2);
-                                    b_block_2 = b_block(seq2);
-                                    
-                                        d2 = Generic_BFMA_TC(NoManBitsPrd, ...
-                                            OutRoundMode, neab, stkbitenabled, ...
-                                            NoManBitsOut, NoExpBitsOut, ...
-                                            a_block_2, b_block_2, d1,NoExpBitsIn);
-                                   
-                                    
-                                    %% ------------------ Final addition with C ------------------
-                                    
-                                    
-                                    
-                                    d = Generic_BFMA_TC(NoManBitsOut, ...
-                                            cOutRoundMode, 2, 1, ...
-                                            NoManBitsOut, NoExpBitsOut, ...
-                                            d2, 1, c, NoExpBitsIn);
-                                        
-                                    
-                                    
-                                    c = d;     % update accumulator
-                                    
-                                % ---------------------------------------------------------
-                                % Non-interleaved pattern (standard TC path)
-                                % ---------------------------------------------------------
-                                else
-                                   
-                                        d = Generic_BFMA_TC(NoManBitsPrd, ...
-                                            OutRoundMode, neab, stkbitenabled, ...
-                                            NoManBitsOut, NoExpBitsOut, ...
-                                            a_block, b_block, c,NoExpBitsIn);
+                                            a_block, b_block, c,NoExpBitsIn,Model);
                                    
                                     c = d;     % recursive accumulation
-                                end
+                               
                                 
                             end     % end k loop
                             
@@ -383,7 +278,9 @@ end
 
 
 
-
+%==================================================================
+%% Function for retreiving bits for accepted floating point formats
+%==================================================================
 
 function fmt = fpformatinfo(fmtName)
 %FPFORMATINFO  Return mantissa, exponent, and total bits for FP formats
@@ -441,26 +338,26 @@ function fmt = fpformatinfo(fmtName)
             fmt.manBits     = 10;
             fmt.hasImplicit = true;
 
-        case {'bfloat16','bf16'}
+        case {'bfloat16','bf16','brainfloat16'}
             fmt.totalBits   = 16;
             fmt.expBits     = 8;
             fmt.manBits     = 7;
             fmt.hasImplicit = true;
 
-        case {'tensorfloat32','tf32'}
+        case {'tensorfloat32','tf32','xf32'} % xf32 from AMD
             % NVIDIA TF32: FP32 exponent range, 10 mantissa bits
             fmt.totalBits   = 19; 
             fmt.expBits     = 8;
             fmt.manBits     = 10;
             fmt.hasImplicit = true;
 
-        case {'fp8-e4m3','e4m3'}
+        case {'fp8-e4m3','e4m3','bf8'} % bf8 from AMD 
             fmt.totalBits   = 8;
             fmt.expBits     = 4;
             fmt.manBits     = 3;
             fmt.hasImplicit = true;
 
-        case {'fp8-e5m2','e5m2'}
+        case {'fp8-e5m2','e5m2','fp8'}  % fp8 solely for e5m2, from AMD
             fmt.totalBits   = 8;
             fmt.expBits     = 5;
             fmt.manBits     = 2;
