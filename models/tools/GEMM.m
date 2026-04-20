@@ -4,7 +4,6 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
     %% Check matrix multiplication compatibility
     [M, K1] = size(A);
     [K2, N] = size(B);
-    
     if K1 ~= K2
         error('Matrix dimensions are not compatible for multiplication: A is %dx%d, B is %dx%d.', M, K1, K2, N);
     end
@@ -21,7 +20,6 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
     def_inopts.round  = 1; 
     def_inopts.infinity=1;
 
-        
     % CPFloat settings for the default output format.
     def_outopts.format = 'fp32';
     def_outopts.round  = 4;
@@ -68,7 +66,6 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
             ' and C are assumed to be rounded to their respective' ...
             ' precisions.\n']);
     end
-
     % ---------------------------------------------------------
     % Initialize D
     % ---------------------------------------------------------
@@ -106,7 +103,6 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
     if neab < 0
             % Special case of Ada/L40S
             NoManBitsOut = NoManBitsOut + neab;
-        
     end
 
     %% --------------------------------------------------------
@@ -121,7 +117,6 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
         pad_size=0;
     end
     
-
 
 if M>2 && exist('ver','file') && ~isempty(ver('parallel')) && exist('feature') && feature('numcores') > 1
 %--------------------------------------------------------------------
@@ -140,9 +135,6 @@ if M>2 && exist('ver','file') && ~isempty(ver('parallel')) && exist('feature') &
                     parfor m = 1:M                             % rows of A
                         
                         a = [reshape(A(m, :), 1, []),zeros(1, pad_size)];        % take m-th row of A
-            
-                        
-                        
                         d=0;
                         for n = 1:N                         % columns of B
                 
@@ -193,10 +185,10 @@ if M>2 && exist('ver','file') && ~isempty(ver('parallel')) && exist('feature') &
                             
                             
                             
-                        end     % end k loop
+                            end     % end k loop
                         
-                        D(m, n) = d;   % store result
-                end % if Nan or Inf check
+                            D(m, n) = d;   % store result
+                    end % if Nan or Inf check
             end     % end n loop
         end         % end m loop
             
