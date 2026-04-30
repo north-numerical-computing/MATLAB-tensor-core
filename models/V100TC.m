@@ -19,6 +19,8 @@ function D = V100TC(alpha, A, B, beta, C, outformat)
 %   D: Result of the operation D = A * B + C computed under the 
 %      specified tensor core configuration.
 
+%addpath('tools')
+
 % Allowed formats
 allowedOutFormats = {'fp32', 'single', 'binary32',...
     'fp16', 'binary16', 'half'};
@@ -32,11 +34,44 @@ end
 
 % Default structures assuming fp16 in and fp32 output. See
 % Generic_TC_Model.m for the information.
-def_params.fma = 4;          % Fused multiply-add (FMA) size
-def_params.neab = 0;          % TC extra alignment bits
-def_params.frmode = 'rz';     % TC final rounding mode
-def_params.stkbitenabled = 0;
-def_params.inter_pattern=0;
+%---------------- Core configuration ----------------%
+def_params.fma  = 4;        % Number of products in one FMA group
+                            % for bf16 input without _1k subscript, fma=2
+def_params.neab = 0;        % Number of extra alignment bits (guard precision)
+
+%---------------- Rounding configuration ----------------%
+def_params.frmode = 'rz';  % Final rounding mode:
+                                   % 'rne' = round-to-nearest-even
+def_params.armode = 'rz';   % Rounding mode during 2-operand alignment:
+                                   % 'rd' = round-down (towards -Inf)
+                                   % (multi-operand alignment uses truncation)
+
+def_params.stkbitenabled  = 0;      % Enable sticky bit during alignment (1 = enabled)
+
+%---------------- Accumulation architecture ----------------%
+def_params.global_alignment  = 1;   % Align all products (and optionally c) to a common exponent
+def_params.late_partial_sum  = 0;   % Add accumulation term 'c' after product summation
+                                   % (products kept in denormalised form)
+def_params.odd_even_grouping = 0;   % Enable separate accumulation of odd/even उत्पाद
+def_params.pair_wise_sum     = 0;   % Enable pair-wise summation (not implemented)
+
+%---------------- Exponent handling ----------------%
+def_params.min_exp_limit   = -133; % Minimum exponent allowed for product alignment
+def_params.c_min_exp_limit = 0;     % Control minimum exponent for c:
+                                   % 1 → clamp to -126 (FP32 subnormal boundary)
+                                   % 0 → allow special handling when c = 0
+
+%---------------- Accuracy / reference model ----------------%
+def_params.correct_rounding = 0;    % Enable exact (Kulisch-style) accumulation
+                                   % (used as reference / ground truth model)
+                                
+%---------------- Subnormal handling ----------------%
+def_params.in_subnormals  = 1;   % Input subnormal support:
+                                % 1 → preserve and process subnormals
+                                % 0 → flush subnormals to zero (FTZ)
+def_params.out_subnormals = 1;   % Output subnormal support:
+                                % 1 → generate subnormal outputs
+                                % 0 → flush subnormal results to zero
 
 if nargin > 3
     if ismember(outformat,{'fp16','binary16','half'})
@@ -44,70 +79,9 @@ if nargin > 3
     end
 end
 
-D = GEMM(alpha, A, B, beta, C, "binary16", outformat, def_params);
+
+    D = GEMM(alpha, A, B, beta, C, 'binary16', outformat, def_params);
+        
+        
 
 end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
