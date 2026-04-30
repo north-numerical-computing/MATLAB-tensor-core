@@ -1,334 +1,449 @@
-function d = Generic_BFMA_TC(NoManBitsIn, OutRoundMode, neab, stkbitenabled,NoManBitsOut,NoExpBitsOut,a_block,b_block,c,NoExpBitsIn,Model)
-% This version computes product via significands separately
-if ~exist("Model","var")
-    Model='NVIDIA'; % default
-end
+function d = Generic_BFMA_TC(a_block, b_block, c, model_params)
+%==========================================================================
+% Generic_BFMA_TC
+%--------------------------------------------------------------------------
+% Simulates Block Floating Multiply-Accumulate (BFMA) with configurable
+% architectural behaviors (e.g., CDNA, NVIDIA-like models).
+%
+% Inputs:
+%   a_block, b_block : input vectors (multiplicands)
+%   c                : accumulation term
+%   model_params     : structure containing model configuration
+%
+% Output:
+%   d : final floating-point result
+%==========================================================================
 
-%% Initialization
-emin_output=1-(2^(NoExpBitsOut-1)-1);
-emin_input=1-(2^(NoExpBitsIn-1)-1);
-    
-% Identify positions where either operand is zero
+
+%% =========================================================================
+% Extract format parameters
+% =========================================================================
+%NoManBitsIn   = model_params.NoManBitsIn;
+NoManBitsOut  = model_params.NoManBitsOut;
+NoExpBitsIn   = model_params.NoExpBitsIn;
+NoExpBitsOut  = model_params.NoExpBitsOut;
+
+%% =========================================================================
+% Extract model configuration flags
+% =========================================================================
+stkbitenabled     = model_params.stkbitenabled;
+OutRoundMode      = model_params.frmode;
+neab              = model_params.neab;
+correct_rounding  = model_params.correct_rounding;
+global_alignment  = model_params.global_alignment;
+late_partial_sum  = model_params.late_partial_sum;
+odd_even_grouping = model_params.odd_even_grouping;
+pair_wise_sum     = model_params.pair_wise_sum;
+min_exp_limit     = model_params.min_exp_limit;
+c_min_exp_limit   = model_params.c_min_exp_limit;
+align_round_mode  = model_params.armode;
+out_subnormals     = model_params.out_subnormals;
+in_subnormals     = model_params.in_subnormals;
+
+%% =========================================================================
+% Initialization
+% =========================================================================
+emin_output = 1 - (2^(NoExpBitsOut - 1) - 1);
+emin_input  = 1 - (2^(NoExpBitsIn  - 1) - 1);
+
+% remove subnormals in input
+if ~in_subnormals
+    a_block(abs(a_block)<2^emin_input)=0;
+    b_block(abs(b_block)<2^emin_input)=0;
+end
+% make c=0, if its subnormal 
+if ~out_subnormals & abs(c)<(2^emin_output)
+    c=0;
+end
+% Identify positions where product will be zero
 prod_zeroIdxs = (a_block == 0) | (b_block == 0);
 
-% Check if we are using CDNA3 with FP8 formats (e5m2 or e4m3)
-cdna3_fp8_check = (strcmp(Model,'CDNA3') && (NoManBitsIn == 3 || NoManBitsIn == 2));
-
-% For all cases except CDNA3 FP8:
-% remove zero-valued products to avoid unnecessary computations
-if ~cdna3_fp8_check
-    a_block(prod_zeroIdxs) = [];   
+% Remove zero-valued products (unless grouping requires them)
+if ~odd_even_grouping && ~pair_wise_sum
+    a_block(prod_zeroIdxs) = [];
     b_block(prod_zeroIdxs) = [];
 end
 
-% If all products are zero and accumulation term is zero,
-% return zero immediately (early exit)
-c_zero_check= (c==0); % to be used later
+% Early exit: all products and accumulation are zero
+c_zero_check = (c == 0);
 if isempty(a_block) && c_zero_check
     d = 0;
     return
 end
 
-%==========================================================================
-% input a and b exponent and significands computation
-%==========================================================================
-a_block_abs=abs(a_block);       b_block_abs=abs(b_block);
-[~,a_exp]=log2(a_block_abs);    a_exp=a_exp-1; a_exp=max(a_exp,emin_input);
-[~,b_exp]=log2(b_block_abs);    b_exp=b_exp-1; b_exp=max(b_exp,emin_input);
-a_sig=pow2(a_block,-a_exp);     b_sig=pow2(b_block,-b_exp);
-prod_sig=a_sig.*b_sig;          prod_exp=a_exp+b_exp; 
 
-if cdna3_fp8_check
-    prod_exp(prod_zeroIdxs)=-1024; % instead of -Inf for 0 product to avoid bitshift function in error
-end
-
-sign_bits = (prod_sig < 0);
-
-
-
-
-%==========================================================================
-%  Model based accumulation
-%==========================================================================
-
-%==========================================================================
-%% Model 1: CDNA 1, kept everything as character array of bits
-%==========================================================================
-if strcmp(Model,'CDNA1')
-   if ~c_zero_check
-    sign_bits(end+1) = (c < 0);
-   end
-   [dbits,dexp,sOut]=CDNA_1(prod_sig,prod_exp,c,sign_bits,c_zero_check);
-
-%=========================================================================================
-%% Model 2: NVIDIA 
-%=========================================================================================
-elseif strcmp(Model,'NVIDIA')
-    if ~c_zero_check
-    sign_bits(end+1) = (c < 0);
-    end
-    [dbits, dexp, sOut] = NVIDIA(prod_sig, prod_exp, c, sign_bits,neab,stkbitenabled);
-
-%=========================================================================================
-%% Model 3: CDNA 3
-%=========================================================================================
-
-elseif strcmp(Model,'CDNA3')
+%% =========================================================================
+% Compute exponents and significands of inputs
+% =========================================================================
+if ~correct_rounding && (~pair_wise_sum)
+    a_block_abs = abs(a_block);
+    b_block_abs = abs(b_block);
     
-    [dbits, dexp, sOut] = CDNA_3(prod_sig, prod_exp, c, sign_bits,cdna3_fp8_check,c_zero_check);
+    [~, a_exp] = log2(a_block_abs);
+    [~, b_exp] = log2(b_block_abs);
+    
+    a_exp = max(a_exp - 1, emin_input);
+    b_exp = max(b_exp - 1, emin_input);
+    
+    a_sig = pow2(a_block, -a_exp);
+    b_sig = pow2(b_block, -b_exp);
+    
+    % Compute product representation
+    prod_sig = a_sig .* b_sig;
+    prod_exp = a_exp + b_exp;
+    
+    % Handle zero products in grouping mode
+    if odd_even_grouping
+        prod_exp(prod_zeroIdxs) = -1024; % avoid -Inf issues
+    end
+    
+    % Extract sign bits
+    sign_bits = (prod_sig < 0);
 
-
-else
-% more models come here
-end    
-
-%============================================================
-% make subnormal if exponent less than minimum output exponent
-%=============================================================
-if dexp<emin_output
-    min_shift=dexp-emin_output;
-    [dbits]=subnormalsignificand(dbits,abs(min_shift),0);
-    dexp=emin_output;
-end   
-   
-%=============================================================
-% Rounding 
-%=============================================================
-if ~strcmp(OutRoundMode,'rz') 
-    [dbits,dexp] = ieeeround(dbits, OutRoundMode, NoManBitsOut, sOut, double(dexp));
 end
 
-%============================================================
-% make subnormal post rounding if exponent less than minimum output exponent
-%=============================================================
+%% =========================================================================
+% ===================== MODEL SELECTION ====================================
+% =========================================================================
 
-if dexp<emin_output
-    min_shift=dexp-emin_output;
-    [dbits]=subnormalsignificand(dbits(1:2+NoManBitsOut),abs(min_shift),1);
-    dexp=emin_output;
-end 
+%--------------------------------------------------------------------------
+% Model 1: Exact accumulation (Kulisch accumulator)
+%--------------------------------------------------------------------------
+if correct_rounding
+    
+    if ~c_zero_check
+        sign_bits(end+1) = (c < 0);
+    end
+    
+    [dbits, dexp, sOut] = Kulisch_Accumulation( ...
+        prod_sig, prod_exp, c, sign_bits, c_zero_check);
+
+
+%--------------------------------------------------------------------------
+% Pair-wise summation (not yet implemented)
+%--------------------------------------------------------------------------
+elseif pair_wise_sum
+    % this function does not require product significand and exponent
+    % separetely
+    d = pws_main(a_block,b_block,c,in_subnormals,out_subnormals,OutRoundMode,emin_input,emin_output);
+    return;
+    
+    % TODO: Implement pair-wise accumulation
+
+
+%--------------------------------------------------------------------------
+% Global alignment model (e.g., NVIDIA / CDNA-3)
+%--------------------------------------------------------------------------
+elseif global_alignment
+    
+    % Include accumulation term early unless delayed
+    if ~c_zero_check && ~late_partial_sum
+        sign_bits(end+1) = (c < 0);
+    end
+    
+    [dbits, dexp, sOut, prod_max_exp, prod_sum] = ...
+        GlobalAlignmentSum(prod_sig, prod_exp, ...
+        c * (~late_partial_sum), sign_bits, ...
+        neab, stkbitenabled, min_exp_limit, 0);
+    
+    
+    %---------------- Late partial sum ----------------
+    if late_partial_sum
+        
+        % Normalize accumulation term c
+        if ~c_zero_check
+            [~, c_exp] = log2(abs(c));
+            c_exp = max(c_exp - 1, -126);
+            c_sig = c / 2^c_exp;
+            
+            c_sig_uint = uint32(abs(c_sig) * 2^(23 + neab));
+            c_sign = (c < 0);
+        else
+            c_sig_uint = 0;
+            c_sign = 0;
+            c_exp = -126 * c_min_exp_limit - 1024 * (~c_min_exp_limit);
+        end
+        
+        c_exp = int16(c_exp);
+        
+        % Add partial sums
+        [max_exp, prod_sum_unnorm, sOut, neab] = ...
+            AddTwoNonNormSums(prod_max_exp, c_exp, sOut, ...
+            c_sign, prod_sum, c_sig_uint, ...
+            align_round_mode, 31-24, 24-24, neab);
+        
+        % Normalize result
+        [dbits, dexp] = norm_helper(prod_sum_unnorm, max_exp, neab, 0);
+    end
+
+
+%--------------------------------------------------------------------------
+% Odd-even grouping model (e.g., CDNA-3 FP8 behavior)
+%--------------------------------------------------------------------------
+elseif odd_even_grouping
+    
+    % Even-indexed products
+    [~, ~, even_sign, even_exp, even_sum] = ...
+        GlobalAlignmentSum(prod_sig(1:2:end), prod_exp(1:2:end), ...
+        0, sign_bits(1:2:end), neab, 0, min_exp_limit, 0);
+    
+    % Odd-indexed products
+    [~, ~, odd_sign, odd_exp, odd_sum] = ...
+        GlobalAlignmentSum(prod_sig(2:2:end), prod_exp(2:2:end), ...
+        0, sign_bits(2:2:end), neab, 0, min_exp_limit, 0);
+    
+    % Combine even and odd sums
+    [max_exp, prod_sum, sOut, neab] = ...
+        AddTwoNonNormSums(even_exp, odd_exp, even_sign, ...
+        odd_sign, even_sum, odd_sum, ...
+        align_round_mode, 0, 0, neab);
+    
+    % Add accumulation term c
+    if ~c_zero_check
+        [~, c_exp] = log2(abs(c));
+        c_exp = max(c_exp - 1, -126);
+        c_sig = c / 2^c_exp;
+        
+        c_sig_uint = uint32(abs(c_sig) * 2^24);
+        c_sign = (c < 0);
+    else
+        c_sig_uint = 0;
+        c_sign = 0;
+        c_exp = int16(-126 * c_min_exp_limit - 1024 * (~c_min_exp_limit));
+    end
+    
+    [max_exp, prod_sum_unnorm, sOut, neab] = ...
+        AddTwoNonNormSums(max_exp, c_exp, sOut, ...
+        c_sign, prod_sum, c_sig_uint, ...
+        align_round_mode, 31-24, 24-24, neab);
+    
+    [dbits, dexp] = norm_helper(prod_sum_unnorm, max_exp, neab, 0);
+
+
+%--------------------------------------------------------------------------
+% Placeholder for additional models
+%--------------------------------------------------------------------------
+else
+    % Additional architectures can be implemented here
+end
+
+
+%% =========================================================================
+% Handle subnormal numbers (before rounding)
+% =========================================================================
+if dexp < emin_output
+    shift = dexp - emin_output;
+    dbits = subnormalsignificand(dbits, abs(shift), 0);
+    dexp  = emin_output;
+end
+
+
+%% =========================================================================
+% Rounding
+% =========================================================================
+if ~strcmp(OutRoundMode, 'rz')
+    [dbits, dexp] = ieeeround(dbits, OutRoundMode, ...
+                             NoManBitsOut, sOut, double(dexp));
+end
+
+
+%% =========================================================================
+% Handle subnormal numbers (after rounding)
+% =========================================================================
+if dexp < emin_output
+    shift = dexp - emin_output;
+    dbits = subnormalsignificand(dbits(1:2+NoManBitsOut), abs(shift), 1);
+    dexp  = emin_output;
+end
 
 if isempty(dexp)
- dexp=0;
+    dexp = 0;
 end
 
-%======================================================================
-% compute the decimal value
-%======================================================================
-d= ((dbits(1)-'0')+bin2dec(dbits(3:NoManBitsOut+2))*2^(-NoManBitsOut))*2^double(dexp);
-if sOut==1
-        d=-d;
+
+%% =========================================================================
+% Convert bit representation to decimal value
+% =========================================================================
+mantissa = (dbits(1) - '0') + ...
+           bin2dec(dbits(3:NoManBitsOut+2)) * 2^(-NoManBitsOut);
+
+d = mantissa * 2^double(dexp);
+
+if sOut == 1
+    d = -d;
 end
 
-%==========================================================================
-% Encode exponent (bias applied)
-%==========================================================================
+
+%% =========================================================================
+% Encode exponent with bias
+% =========================================================================
 dexp = dexp + (2^(NoExpBitsOut - 1) - 1);
 
-%==========================================================================
-%  checking Inf/-Inf
-%==========================================================================
-if dexp==((2^NoExpBitsOut)-1)
-    d=Inf;
-     if sOut==1
-        d=-d;
-     end
 
-return
+%% =========================================================================
+% Handle overflow (Inf / -Inf)
+% =========================================================================
+if dexp == (2^NoExpBitsOut - 1)
+    d = Inf;
+    if sOut == 1
+        d = -d;
+    end
+    return
 end
 
-% see the exponent bits in IEEE 754 format
 
+%% =========================================================================
+% Final safety check
+% =========================================================================
 if isempty(d)
-    d=0;
+    d = 0;
+end
+
+% flush subnormal based on out_subnormal flag
+if abs(d)<2^emin_output && ~out_subnormals
+d=0;
+end
+
 end
 
 
-end
-% ================ Main Function End  Here =========================
 
 %#######################################################################
-% Functions from Here are Written Below
+% Pair Wise Sum Main Function: Implementing CDNA 2 Like Models
 %#######################################################################
+function d=pws_main(a,b,c,in_subnormal,out_subnormals,OutRoundMode,emin_input,emin_output)
+        min_in=2^emin_input;
+        min_out=2^emin_output;
+        % flush out input subnormal
+        if ~in_subnormal
+            a_sn_idx=abs(a)<min_in;
+            b_sn_idx=abs(b)<min_in;
+            zero_idx=a_sn_idx | b_sn_idx;
+            a(zero_idx)=0; % flushing a
+            b(zero_idx)=0; % flushing b
+        end
+        prod=single(a.*b); % by default 
+        % flush the out_subnormals
+        if ~out_subnormals    
+            c=(abs(c)>=min_out)*c;
+            prod(abs(prod)<min_out)=0;
+        end
 
-%==========================================================================
-%% Function: CDNA_3 (Short descriptive name)
-% Purpose : Calls CDNA_3 arch function to emulate its feature in matlab for
-% all supported input formats except fp32/fp64 where its sequential FMA
-% Inputs  : 
-%   - prod_sig : product_significands
-%   - prod_exp : product exponents, sum of exponents of two operands
-%   - c : accumulation from previous  
-%   - sign_bits : sign bits for product significands
-%   - fp8_check : fp8 input format in CDNA_3 is detected
-%   - c_zero_check: a check if c is zero or not, already checked in the
-%   main function
-
-% Outputs :
-%   - dbits : output in bits in fixed points i.e. 1.01011
-%   - dexp : output exponent in powers of 2
-%   -signOut: output sign bit
-%==========================================================================
-function [dbits, dexp, signOut] = CDNA_3(prod_sig, prod_exp, c, sign_bits,fp8_check,c_zero_check);
-% declare some constants
-neab=1; % single extra bit
-
-if fp8_check
-  [dbits,dexp,signOut]=CDNA3_Low(prod_sig,prod_exp,sign_bits,c,neab,c_zero_check);
-else
-    [dbits,dexp,signOut]=CDNA3_High(prod_sig,prod_exp,sign_bits,c,neab,c_zero_check);
-
-end
-
-
-end
-
-%==========================================================================
-%% Function: CDNA_3_High (Short descriptive name)
-% Purpose : Computs the output for fp16/bf16/tf32 input format inputs. This
-% is called from writhin CDNA_3 function when input format is amongst as above
-% Inputs  : 
-%   neab: extra alignment bits
-
-%==========================================================================
-
-function [dbits,dexp,signOut]=CDNA3_High(prod_sig,prod_exp,sign_bits,c,neab,c_zero_check)
-
-[max_exp, align_sigs] = AlignSignficand(prod_sig,prod_exp,0,1,0,'CNDA3');
-prod_sum_unnorm=dot(double(align_sigs),(1-2*(sign_bits)));
-prod_sum_sign=prod_sum_unnorm<0;
-
-if c_zero_check
- [dbits,dexp]=norm_helper(prod_sum_unnorm,max_exp,neab,0);
- signOut=prod_sum_sign;
- return;
-else
- [~,c_exp]=log2(abs(c)); c_exp=c_exp-1; c_exp=max([c_exp,-126]); c_sig=c/2^c_exp;
- c_sig_uint=uint32(abs(c_sig)*16777216); % considering 2^(23+neab=1)=2^24
-end
-
-shift=abs(max_exp-int16(c_exp));
-sign_bits=[prod_sum_sign,c<0];
-
-round_down=0; % default false
-if c_exp<max_exp
-    round_down=(c_sig_uint-bitshift(bitshift(c_sig_uint,-shift),shift))>0 && c<0;
-    c_sig_uint=bitshift(c_sig_uint,-shift)+uint32(round_down); % round down applied
-    prod_sum_unnorm_u64=abs(prod_sum_unnorm);
-else
-    % increase the neab
-    neab=neab+(31-24);
-    prod_sum_unnorm_u64=uint64(abs(prod_sum_unnorm));
-    prod_sum_unnorm_u64=bitshift(prod_sum_unnorm_u64,31-24);
-    c_sig_uint=bitshift(c_sig_uint,31-24);
-    % check round down parameter
-    round_down=(prod_sum_unnorm_u64-bitshift(bitshift(prod_sum_unnorm_u64,-shift),shift))>0 && prod_sum_sign;
-    prod_sum_unnorm_u64=bitshift(prod_sum_unnorm_u64,-shift)+uint64(round_down); % round down applied
-    max_exp=c_exp;
-end
-   operands=double([prod_sum_unnorm_u64,c_sig_uint]);
-   total_sum=dot(operands,1-2*sign_bits);
-   signOut=total_sum<0;
-   [dbits,dexp]=norm_helper(total_sum,max_exp,neab,0);
-
-end
-
-%==========================================================================
-%% Function: CDNA_3_Low (Short descriptive name)
-% Purpose : Computs the output for fp8 input format inputs. This
-% is called from writhin CDNA_3 function when input format is amongst as above
-% Inputs  : See discription in CDNA_3 and CDNA3_High for inputs discreption
-%==========================================================================
-
-function [dbits,dexp,signOut]=CDNA3_Low(prod_sig,prod_exp,sign_bits,c,neab,c_zero_check)
-
-  % remove zero from even and odd indexed
-    K=numel(prod_sig);
-    odd_indices=2:2:K; even_indices=1:2:K;
-    even_prod_sig  = prod_sig(even_indices);     odd_prod_sig  = prod_sig(odd_indices);
-    even_sign_bits = sign_bits(even_indices);   odd_sign_bits  = sign_bits(odd_indices);
-    even_prod_exp  = prod_exp(even_indices);    odd_prod_exp   = prod_exp(odd_indices);
-
-    %% Section 1: Add even and Odd indexed product significands separately
-    % even indexed products
-    [even_max_exp, even_align_sigs] = AlignSignficand(even_prod_sig,even_prod_exp,0,1,0,'CNDA3');
-    even_prod_sum_unnorm=dot(double(even_align_sigs),(1-2*(even_sign_bits)));
-    even_prod_sum_sign=even_prod_sum_unnorm<0;
-    even_prod_sum_uint32=uint32(abs(even_prod_sum_unnorm));
-   
-    % add odd indexed product
-    [odd_max_exp, odd_align_sigs] = AlignSignficand(odd_prod_sig,odd_prod_exp,0,1,0,'CNDA3');
-    odd_prod_sum_unnorm=dot(double(odd_align_sigs),(1-2*(odd_sign_bits)));
-    odd_prod_sum_sign=odd_prod_sum_unnorm<0;
-    odd_prod_sum_uint32=uint32(abs(odd_prod_sum_unnorm));
-   
-    %% Section 2: Add two product sums
-    max_exp=max([even_max_exp,odd_max_exp]);
-    shift=abs(even_max_exp-odd_max_exp);
-    % shift>512 means one of the product sum is zero, and therefore, shift
-    % must be zero
-    if shift>512
-        shift=0;
-    end
-    % unlike addition of c in this function and in CDNA3_High, we have an
-    % extra elseif because zero condition is not separately checked
-    if even_max_exp<max_exp
-        % round down even indexed product sum
-        round_down=(even_prod_sum_uint32-bitshift(bitshift(even_prod_sum_uint32,-shift),shift))>0 && even_prod_sum_sign;
-        even_prod_sum_uint32=bitshift(even_prod_sum_uint32,-shift)+uint32(round_down);
-    elseif odd_max_exp<max_exp  
-        % round down odd indexed product sum     
-        round_down=(odd_prod_sum_uint32-bitshift(bitshift(odd_prod_sum_uint32,-shift),shift))>0 && odd_prod_sum_sign;
-        odd_prod_sum_uint32=bitshift(odd_prod_sum_uint32,-shift)+uint32(round_down);
+    % recursive addition calling    
+    d=c;     
+    if strcmp(OutRoundMode,'rne')
+        psout=pws_fma(prod,out_subnormals,min_out);
+        d=fma(d,1,psout); % n/2:n-1
+        if ~out_subnormals
+            d=d*(abs(d)>=min_out);
+        end
     else
-        %nothing
+        psout=pws_recursive_helper(prod,out_subnormals,emin_output,min_out,OutRoundMode);
+        d=fma2(d,psout,emin_output,OutRoundMode); % n/2:n-1
+        if ~out_subnormals
+            d=d*(abs(d)>=min_out);
+        end
+        % other written function
     end
 
-    operands=double([even_prod_sum_uint32,odd_prod_sum_uint32]);
-    prod_sum_unnorm=dot(operands,1-2*[even_prod_sum_sign,odd_prod_sum_sign]);
-    prod_sum_sign=prod_sum_unnorm<0;
-    
-%% Section 3: Addition of c to product sums
 
-if c_zero_check
- [dbits,dexp]=norm_helper(prod_sum_unnorm,max_exp,neab,0);
- signOut=prod_sum_sign;
- return;
-else
- [~,c_exp]=log2(abs(c)); c_exp=c_exp-1; c_exp=max([c_exp,-126]); c_sig=c/2^c_exp;
- c_sig_uint=uint32(abs(c_sig)*16777216); % considering 2^(23+neab=1)=2^24
+
 end
 
-shift=abs(max_exp-int16(c_exp));
-sign_bits=[prod_sum_sign,c<0];
+%% PairWise Recursive Helper Function
+function d=pws_recursive_helper(prod,out_subnormals,emin_output,min_out,OutRoundMode)
 
-round_down=0; % default false
-if c_exp<=max_exp
-    round_down=(c_sig_uint-bitshift(bitshift(c_sig_uint,-shift),shift))>0 && c<0;
-    c_sig_uint=bitshift(c_sig_uint,-shift)+uint32(round_down); % round down applied
-    prod_sum_unnorm_u64=abs(prod_sum_unnorm);
+if numel(prod)==1
+    d=prod;
+    return
 else
-    % increase the neab
-    neab=neab+(31-24);
-    prod_sum_unnorm_u64=uint64(abs(prod_sum_unnorm));
-    prod_sum_unnorm_u64=bitshift(prod_sum_unnorm_u64,31-24);
-    c_sig_uint=bitshift(c_sig_uint,31-24);
-    % check round down parameter
-    round_down=(prod_sum_unnorm_u64-bitshift(bitshift(prod_sum_unnorm_u64,-shift),shift))>0 && prod_sum_sign;
-    prod_sum_unnorm_u64=bitshift(prod_sum_unnorm_u64,-shift)+uint64(round_down); % round down applied
-    max_exp=c_exp;
-end
-   operands=double([prod_sum_unnorm_u64,c_sig_uint]);
-   total_sum=dot(operands,1-2*sign_bits);
-   signOut=total_sum<0;
-   [dbits,dexp]=norm_helper(total_sum,max_exp,neab,0);
+    d=pws_recursive_helper(prod(1:end/2),out_subnormals,emin_output,min_out,OutRoundMode); % 0:n/2-1;
+    d=fma2(d,pws_recursive_helper( prod(end/2+1:end),out_subnormals,emin_output,min_out,OutRoundMode),emin_output,OutRoundMode); % n/2:n-1
+        if ~out_subnormals
+            d=d*(abs(d)>=min_out);
+        end
+        if isnan(d)
+            return
+        end
 
+        return;
+
+end
+
+end
+
+%% Self coded fma function offering multiple rounding modes   
+function d=fma2(d,prod,emin_output,OutRoundMode)
+d=[d,prod];
+[~,d_exp]=log2(abs(d));
+d_exp=d_exp-1;
+d_exp(d_exp<-126)=-126;
+d_sig=pow2(d,-d_exp);
+d_exp(d==0)=-1024;
+% [maxExp, alignedSig] = AlignSignficand(d_sig,d_exp,0,2,1,-1024,0);
+% sum=dot(double(alignedSig),(1-2*d<0));
+% if sum==0
+%     d=0;
+%     return
+% end
+% sOut=sum<0;
+%[dbits,dexp]=norm_helper(sum,maxExp,2,1);
+[dbits, dexp, sOut] = Kulisch_Accumulation(d_sig, d_exp, 0,d<0,1);
+% subnormal range
+if dexp < emin_output
+    shift = dexp - emin_output;
+    dbits = subnormalsignificand(dbits, abs(shift), 0);
+    dexp  = emin_output;
+end
+% rounding
+if ~strcmp(OutRoundMode, 'rz')
+    [dbits, dexp] = ieeeround(dbits, OutRoundMode,23, sOut, double(dexp));
+end
+%
+
+mantissa = (dbits(1) - '0')+bin2dec(dbits(3:23+2)) * 2^(-23);
+d = mantissa * 2^double(dexp);
+
+if sOut == 1
+    d = -d;
+end
+
+dexp = dexp + (2^(8 - 1) - 1);
+if dexp == (2^8 - 1)
+    d = Inf;
+    if sOut == 1
+        d = -d;
+    end
+    return
+end
+
+
+
+end
+
+%% Pair-Wise Sum with matlab built-in fma function for rne rounding
+function d=pws_fma(prod,out_subnormals,min_out)
+    if numel(prod) == 1
+        d=prod;
+        return;
+    else
+        d=pws_fma(prod(1:end/2),out_subnormals,min_out); % 0:n/2-1
+        d=fma(d,1,pws_fma( prod(end/2+1:end),out_subnormals,min_out)); % n/2:n-1
+        if ~out_subnormals
+            d=d*(abs(d)>=min_out);
+        end
+        if isnan(d)
+            return
+        end
+
+        return;
+    end
 end
 
 
 %==========================================================================
-%% Function: NVIDIA (Short descriptive name)
-% Purpose : Simulat the NVIDIA TC behaviour for a full FMA,
+%% Function: 
+% Purpose : Simulat the NVIDIA/AMD TC behaviour for a full FMA,
 % Inputs
 % - stkbitenabled : for stkbit in case of two operands to this function
 % like only two products with c=0 or a single product with c non-zero,
@@ -336,9 +451,10 @@ end
 % access via HMMA (fp16) TC where inter-leaved pattern is to be implemented
 % and c is added at the end with RNE
 %==========================================================================
-function [dbits, dexp, signOut] = NVIDIA(prod_sig, prod_exp, c, sign_bits,neab,stkbitenabled)
+%==========================================================================
+function [dbits, dexp, signOut,max_exp,sum_unormalised] = GlobalAlignmentSum(prod_sig, prod_exp, c, sign_bits,neab,stkbitenabled,min_exp_limit,c_min_exp_limit)
 
-    [max_exp, align_sigs] = AlignSignficand(prod_sig,prod_exp,c,neab,stkbitenabled,'NVIDIA');
+    [max_exp, align_sigs] = AlignSignficand(prod_sig,prod_exp,c,neab,stkbitenabled,min_exp_limit,c_min_exp_limit);
     sum_unormalised=dot(double(align_sigs),(1-2*(sign_bits)));
     signOut=sum_unormalised<0;
     % if sum is 
@@ -347,18 +463,85 @@ function [dbits, dexp, signOut] = NVIDIA(prod_sig, prod_exp, c, sign_bits,neab,s
             dbits=['0.00000000000000000000000'];
             return
      end
-
-     [dbits,dexp]=norm_helper(sum_unormalised,max_exp,neab,stkbitenabled);
+    [dbits,dexp]=norm_helper(sum_unormalised,max_exp,neab,stkbitenabled);
    
 end
 
 %==========================================================================
-%% Function: Normalisation Helper Function
-% Description : takes in unnormalised integer sum and normalises it and
-% outputs the sum as fixed point in form of bits with a decimal character
-% and exponent in powers of 2
-% for example: dbits=1.00110110 x 2^dexp
+%% Denormalised Addition of two operands with different alignment mode
+%==========================================================================
+function [max_exp,prod_sum_unnorm,prod_sum_sign,neab]=AddTwoNonNormSums(max_exp_1,max_exp_2,sign_1,sign_2,sum_1,sum_2,align_round_mode,eab_1,eab_2,neab)
+    
+    max_exp=max([max_exp_1,max_exp_2]);
+    shift=abs(max_exp_1-max_exp_2);
+    
+    if eab_1<0 || eab_2<0
+        error('Alignment Bits Post Global or Grouped Global Alignment Should not be Negative');
+    end
 
+
+    % convert all sums to uint64 for safety
+    sum_1=uint64(abs(sum_1)); sum_2=uint64(abs(sum_2));
+    
+    % shift>512 means one of the product sum is zero, and therefore, shift
+    % must be zero
+    if shift>532
+        shift=0;
+    end
+    % unlike addition of c in this function and in CDNA3_High, we have an
+    % extra elseif because zero condition is not separately checked
+    ulpAdjument=0;
+    if max_exp_1<max_exp   
+        % round down even indexed product sum
+        neab=neab+eab_1;
+        sum_1=bitshift(sum_1,eab_1);
+        sum_2=bitshift(sum_2,eab_1);
+        switch align_round_mode
+            case 'rd' 
+                ulpAdjument=(sum_1-bitshift(bitshift(sum_1,-shift),shift))>0 && sign_1;
+            case 'ru'
+                ulpAdjument=(sum_1-bitshift(bitshift(sum_1,-shift),shift))>0 && (~sign_1);
+            case 'rne'
+                truncated = bitshift(sum_1, -shift);
+                remainder = sum_1 - bitshift(truncated, shift);
+                half = bitshift(1, shift-1);
+                ulpAdjustment = (remainder > half) || (remainder == half && bitand(truncated, 1));
+            otherwise
+                % truncation
+        end
+        sum_1=bitshift(sum_1,-shift)+uint64(ulpAdjument);
+    elseif max_exp_2<max_exp  
+        % round down odd indexed product sum
+        neab=neab+eab_2; % adjust neab
+        sum_1=bitshift(sum_1,eab_2);
+        sum_2=bitshift(sum_2,eab_2);
+        switch align_round_mode
+            case 'rd' 
+                ulpAdjument=(sum_2-bitshift(bitshift(sum_2,-shift),shift))>0 && sign_2;
+            case 'ru'
+                ulpAdjument=(sum_2-bitshift(bitshift(sum_2,-shift),shift))>0 && (~sign_2);
+            case 'rne'
+                truncated = bitshift(sum_2, -shift);
+                remainder = sum_2 - bitshift(truncated, shift);
+                half = bitshift(1, shift-1);
+                ulpAdjustment = (remainder > half) || (remainder == half && bitand(truncated, 1));
+            otherwise
+                % truncation
+        end
+        sum_2=bitshift(sum_2,-shift)+uint64(ulpAdjument);
+    else
+        %nothing
+    end
+    operands=double([sum_1,sum_2]);
+    prod_sum_unnorm=dot(operands,1-2*[sign_1,sign_2]);
+    prod_sum_sign=prod_sum_unnorm<0;
+end
+
+
+%==========================================================================
+%% Function: Normalisation Helper Function
+% takes in aligned significand sum as integer along with neab, max_exp,
+% stkbit
 %==========================================================================
  
 function [dbits,dexp]=norm_helper(sum_unormalised,max_exp,neab,stkbit)
@@ -378,16 +561,9 @@ function [dbits,dexp]=norm_helper(sum_unormalised,max_exp,neab,stkbit)
 end
 
 %==========================================================================
-%% Function: CDNA_1
-% Purpose : Simulat the CDNA_1 Matrix Core behaviour for a full FMA,
-% Perform correctly rounded sum, we are not sure if its Kulisch
-% accumulation or correctly rounded accumulation as it output identical
-% output, 
-% So the implementation is such that it keeps all bits and then round the
-% final sum to fp32 via round to nearest ties to even
-
+%% Function: Kulisch Accumulation
 %==========================================================================
-function [dbits, dexp, signOut] = CDNA_1(prod_sig, prod_exp, c, signBits,c_zero_check)
+function [dbits, dexp, signOut] = Kulisch_Accumulation(prod_sig, prod_exp, c, signBits,c_zero_check)
 
     % Include constant term if non-zero
     if ~c_zero_check
@@ -447,12 +623,13 @@ function [dbits, dexp, signOut] = CDNA_1(prod_sig, prod_exp, c, signBits,c_zero_
     % Normalisation
     [dbits, dexp] = ...
         NormalisationPostAddition(dbits, maxExponent, decimalPoint, integerPart);
-
+    if isempty(dexp)
+        dexp=0;
+    end
 end
 
-
 %==========================================================================
-% Function: subnormal significand
+%% Function: subnormal significand
 %==========================================================================
 function [dbits]=subnormalsignificand(dbits,shift,truncate)
 CharLen=numel(dbits);
@@ -470,8 +647,8 @@ end
 
 
 %==========================================================================
-% Function for summing Binary Strings as bitwise with 2s complement:
-% Called from Within CDNA_1 function
+%% Function for summing Binary Strings as bitwise with 2s complement:
+%% Called from Within CDNA_1 function
 %==========================================================================
 function [acc,resultSign,intpart,decimalpoint] = sumBinaryFixedBitwise(signBits, bitStrings)
 % signBits  : char array like '0101...'
@@ -577,7 +754,6 @@ total=dot(x,SignBits);
 end
 
 
-
 %% ========================================================================
 %  Fraction to Bins
 %  ========================================================================
@@ -611,8 +787,7 @@ end
 
 
 %% ========================================================================
-%  Sub-Function: ieeeround
-% ========================================================================
+%%  Sub-Function: IEEE Rounding (RD/RU/RNE/RZ)
 % ========================================================================
 function [outbits, outexp] = ieeeround(inbits, rndmode, NoManBits, signbit, inexp)
 %IEEEROUND IEEE-754 Rounding Operation
@@ -673,10 +848,8 @@ function [outbits, outexp] = ieeeround(inbits, rndmode, NoManBits, signbit, inex
     end
 end
 
-
-
 %-----------------------------------------
-%
+%% 
 %-----------------------------------------
 function [outbits,outexp]=NormPostAddULP(instr,inexp,nomanbits)
 total_unormalised=bin2dec([instr(1),instr(3:end)])+1;
@@ -719,7 +892,7 @@ end
 
 
 %--------------------------------------------------------------------
-%------------- compute GRBT Bits Function ---------------------------
+%% compute GRBT Bits Function
 %--------------------------------------------------------------------
 function [guardbitsdec]=computgrtbits(NoManBits,AlignBits)
 K=numel(AlignBits(:,1));
@@ -742,7 +915,7 @@ guardbitsdec = bin2dec(guard) + sticky;
 end
 
 %---------------------------------------------
-%
+%%   Normalisation Post Addition
 %---------------------------------------------
 function [d_in_bits,final_exp_actual]=NormalisationPostAddition(resultStr,largest_exp,decimalpoint,intpart) 
 
@@ -782,10 +955,11 @@ final_exp_actual=largest_exp+exp_shift_result;
 end
 
 
+%---------------------------------------------
+%% Takes in products significand and align based on exponents
+%% outputs aligned significands as array of characters
+%---------------------------------------------
 
-%--------------------------------------------------------------------
-%%
-%--------------------------------------------------------------------
 function [exp_unbiased, BitCharArray] = AlignSignificandBits(x)
 
     
@@ -811,9 +985,11 @@ function [exp_unbiased, BitCharArray] = AlignSignificandBits(x)
     
 end
 
-
-
-function [maxExp, alignedSig] = AlignSignficand(x, xExp, c, neab, stkbit,Model)
+%---------------------------------------------
+%% Takes in products significand and align based on exponents
+%% outputs aligned significands as usigned integers
+%---------------------------------------------
+function [maxExp, alignedSig] = AlignSignficand(x, xExp, c, neab, stkbit,minexplimit,c_min_exp_limit)
 %FPBITS_IEEE2 Extract and align IEEE-754 significands with exponents
 %
 % Inputs:
@@ -843,7 +1019,6 @@ function [maxExp, alignedSig] = AlignSignficand(x, xExp, c, neab, stkbit,Model)
     %% === Optional scalar 'c' ===
     if c ~= 0
         cUint32  = typecast(single(c), 'uint32');
-
         rawExpC  = bitand(bitshift(cUint32, -23), uint32(255));
         expC     = int16(rawExpC) - FP32_BIAS;
         expC(expC == -127) = -126;           % subnormal correction
@@ -851,9 +1026,14 @@ function [maxExp, alignedSig] = AlignSignficand(x, xExp, c, neab, stkbit,Model)
         fracC    = bitand(cUint32, FP32_FRAC_MASK);
         sigC     = fracC + uint32(rawExpC ~= 0) * FP32_IMPLICIT;   
     else
-       
+       if ~c_min_exp_limit
         expC     = [];
         sigC     = [];
+       else
+        expC     = -126;
+        sigC     = 0;
+
+       end
     end
     %% === Combine products with optional scalar 'c' ===
     expVals    = [expVals, expC];
@@ -863,11 +1043,11 @@ function [maxExp, alignedSig] = AlignSignficand(x, xExp, c, neab, stkbit,Model)
 
     %% === Alignment ===
     maxExp     = max(expVals);
-    
+
     %% == putting a limit on the max exponent =====
-    if strcmp(Model,'NVIDIA')
-        if maxExp<-133 % considering bf16 
-            maxExp=-133;
+    if exist('minexplimit')
+        if maxExp<minexplimit % considering bf16 
+            maxExp=minexplimit;
         end
     end
     shiftExps  = maxExp - expVals;
