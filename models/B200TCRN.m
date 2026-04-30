@@ -94,17 +94,17 @@ if ismember(informat, {'fp16','half','binary16'})
         end  
     end
 elseif ismember(informat, {'tf32', 'tensorfloat32'})
-         def_params.fma=8;
+    def_params.fma=8;
 elseif ismember(informat, {'fp8-e5m2','fp8-e4m3','e5m2','e4m3'}) 
-        % FMA size is 16, but interleaved pattern is used to join two
-        % 16-element vectors.
-        def_params.fma = 32;   
-        if exist('outformat', 'var')
-            outformat='fp32';
-            if ismember(outformat, {'fp16','binary16','half'})
-                def_params.frmode='rne';
-            end
+    % FMA size is 16, but interleaved pattern is used to join two
+    % 16-element vectors.
+    def_params.fma = 32;   
+    if exist('outformat', 'var')
+        outformat='fp32';
+        if ismember(outformat, {'fp16','binary16','half'})
+            def_params.frmode='rne';
         end
+    end
 end
 
      D = GEMM(alpha, A, B, beta, C, informat, outformat, def_params);

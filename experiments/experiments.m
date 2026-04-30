@@ -109,3 +109,11 @@ p = 4;
 matmul_test;
 p = 6;
 matmul_test;
+
+model = 'b200rn';
+p = 1;
+matmul_test;
+p = 4;
+matmul_test;
+p = 6;
+matmul_test;
