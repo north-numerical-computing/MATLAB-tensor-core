@@ -101,7 +101,7 @@ Tensor core models of following NVIDIA GPU archs are supported:
 2. Ampere (A100, A2, A30, A40)
 3. Hopper (H100, GH200)
 4. Ada Lovelace (RTX-1000, L40S)
-5. Blackwell (B200)
+5. Blackwell (B200)\\
 Matrix core models of
 1. CDNA 1 (M100)
 2. CDNA 2 (MI210, MI250)
