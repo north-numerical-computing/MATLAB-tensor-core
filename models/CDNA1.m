@@ -38,12 +38,50 @@ if exist('informat', 'var')
     informat=lower(informat);
 end
 
-% Default parameters assuming fp16 input and fp32 accumulation/output.
-% See Generic_TC_Model.m for more details.
-def_params.fma = 4;          % Fused multiply-add (FMA) group size
-def_params.neab = Inf;       % Extra alignment bits
-def_params.frmode = 'rne';  % Final rounding mode (round-to-nearest-even)
-def_params.model='CDNA1';
+%--------------------------------------------------------------------------
+% Assumes FP16 inputs with FP32 accumulation/output precision.
+% See Generic_TC_Model.m for full implementation details.
+%==========================================================================
+
+%---------------- Core configuration ----------------%
+def_params.fma  = 4;        % Number of products in one FMA group
+def_params.neab = Inf;        % Number of extra alignment bits (guard precision)
+
+%---------------- Rounding configuration ----------------%
+def_params.frmode         = 'rne';  % Final rounding mode:
+                                   % 'rne' = round-to-nearest-even
+def_params.armode = 'rd';   % Rounding mode during 2-operand alignment:
+                                   % 'rd' = round-down (towards -Inf)
+                                   % (multi-operand alignment uses truncation)
+
+def_params.stkbitenabled  = 0;      % Enable sticky bit during alignment (1 = enabled)
+
+%---------------- Accumulation architecture ----------------%
+def_params.global_alignment  = 0;   % Align all products (and optionally c) to a common exponent
+def_params.late_partial_sum  = 0;   % Add accumulation term 'c' after product summation
+                                   % (products kept in denormalised form)
+def_params.odd_even_grouping = 0;   % Enable separate accumulation of odd/even उत्पाद
+def_params.pair_wise_sum     = 0;   % Enable pair-wise summation (not implemented)
+
+%---------------- Exponent handling ----------------%
+def_params.min_exp_limit   = -1024; % Minimum exponent allowed for product alignment
+def_params.c_min_exp_limit = 0;     % Control minimum exponent for c:
+                                   % 1 → clamp to -126 (FP32 subnormal boundary)
+                                   % 0 → allow special handling when c = 0
+
+%---------------- Accuracy / reference model ----------------%
+def_params.correct_rounding = 1;    % Enable exact (Kulisch-style) accumulation
+                                   % (used as reference / ground truth model)
+                                
+%---------------- Subnormal handling ----------------%
+def_params.in_subnormals  = 1;   % Input subnormal support:
+                                % 1 → preserve and process subnormals
+                                % 0 → flush subnormals to zero (FTZ)
+def_params.out_subnormals = 1;   % Output subnormal support:
+                                % 1 → generate subnormal outputs
+                                % 0 → flush subnormal results to zero
+
+
 
 % Configure model based on input format
 if ismember(informat, {'fp16','half','binary16'})
