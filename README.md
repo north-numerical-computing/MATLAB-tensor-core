@@ -1,4 +1,4 @@
-MATLAB Tensor Core models
+MATLAB Tensor & Matrix Core models
 --
 
 [![Open in MATLAB Online](https://www.mathworks.com/images/responsive/global/open-in-matlab-online.svg)](https://matlab.mathworks.com/open/github/v1?repo=north-numerical-computing/MATLAB-tensor-core)
@@ -95,7 +95,18 @@ def_params.out_subnormals = 1;   % Output subnormal support: 1 → generate subn
 
 D = GEMM(alpha, A, B, beta, C, informat, outformat, def_params);
 ```
-
+## Supported Architectures
+Tensor core models of following NVIDIA GPU archs are supported:
+1. Volta (V100)
+2. Ampere (A100, A2, A30, A40)
+3. Hopper (H100, GH200)
+4. Ada Lovelace (RTX-1000, L40S)
+5. Blackwell (B200)
+Matrix core models of
+1. CDNA 1 (M100)
+2. CDNA 2 (MI210, MI250)
+3. CDNA 3 (MI300, MI300A, MI300X)
+ 
 ## References
 
 [1] F. A. Khattak and M. Mikaitis, [Accurate Models of NVIDIA Tensor Cores](https://arxiv.org/abs/2512.07004). arXiv:2512.07004 [cs.MS]. Dec. 2025 (Updated Apr. 2026).<br>
