@@ -48,7 +48,6 @@ end
 % Generic_TC_Model.m for the information.
 %---------------- Core configuration ----------------%
 def_params.fma  = 16;        % Number of products in one FMA group
-                            % for bf16 input without _1k subscript, fma=2
 def_params.neab = 2;        % Number of extra alignment bits (guard precision)
 
 %---------------- Rounding configuration ----------------%
