@@ -5,14 +5,14 @@ MATLAB Tensor Core models
 
 ## Overview
 
-This repository provides accurate tensor core models written in MATLAB. It also includes parts of the model validation data which is used to refine the models as shown in [1].
+This repository provides accurate tensor (NVIDIA) and matrix (AMD) core models written in MATLAB. It also includes parts of the model validation data which is used to refine the models as shown in [1].
 
-The [models](models/) directory contains the MATLAB models of tensor cores of several NVIDIA GPUs, all of which are build on the parameterised model in [Generic_BFMA_TC.m](models/tools/Generic_BFMA_TC.m). For example the [B200TC.m](models/B200TC.m) models the General Matrix Multiply (GEMM) based on the accurate model of a tensor core in the NVIDIA Blackwell B200 GPUs. In the current version of the toolbox, the models take matrices and input and output floating-point formats as inputs and multiply the matrices by using a recursive summation algorithm to accummulate the results of several tensor core invocations.
+The [models](models/) directory contains the MATLAB models of tensor cores of several NVIDIA GPUs and matrix cores of three arch of AMD GPUs, all of which are build on the parameterised model in [Generic_BFMA_TC.m](models/tools/Generic_BFMA_TC.m). For example the [B200TC.m](models/B200TC.m) models the General Matrix Multiply (GEMM) based on the accurate model of a tensor core in the NVIDIA Blackwell B200 GPUs. In the current version of the toolbox, the models take matrices and input and output floating-point formats as inputs and multiply the matrices by using a recursive summation algorithm to accummulate the results of several tensor core invocations.
 
 The initial analysis of the behaviour of GPU tensor cores is performed with the code available at [IEEE_HPEC2025_block_FMA_tests](https://github.com/faiziktk/IEEE_HPEC2025_block_FMA_tests).
 It is based on the generalised testing methodology [2] which determines the following features of hardware computing mixed-precision inner products:
 
-* Support for subnormal numbers
+* Support for subnormal numbers in input and output
 * Presence of extra bits for significand alignment in multi-term addition
 * Availability of extra carry bits
 * Normalization patterns in multi-term floating-point addition
@@ -72,13 +72,26 @@ ans =
 
 ## Example: Setting up the NVIDIA B200 model
 
-While the B200 tensor core model comes with this toolbox, below is a minimal example for setting it up. The input matrices are assumed to be rounded to the appropriate formats with CPFloat. The model in [B200TC.m](models/B200TC.m) provides a more detailed set up that changes the parameters of a generalised model based on all possible input/output format combinations.
+While the B200 tensor core model comes with this toolbox, below is a minimal example for setting it up. The input matrices are assumed to be rounded to the appropriate formats with CPFloat. The model in [B200TC.m](models/B200TC.m) provides a more detailed set up that changes the parameters of a generalised model based on all possible input/output format combinations. Few parameters are shown below:
 
 ```
-% Default structures assuming fp16 in and fp32 output
-def_params.fma    = 16;      % Fused multiply-add (FMA) size
-def_params.neab   = 2;       % TC extra alignment bits
-def_params.frmode = 'rz';    % TC final rounding mode
+def_params.fma  = 16;        % Number of products in one FMA group
+def_params.neab = 2;        % Number of extra alignment bits (guard precision)
+%---------------- Rounding configuration ----------------%
+def_params.frmode = 'rz';  % Final rounding mode:
+%---------------- Accumulation architecture ----------------%
+def_params.global_alignment  = 1;   % Align all products (and optionally c) to a common exponent
+def_params.late_partial_sum  = 0;   % Add accumulation term 'c' after product summation; (products sum kept in denormalised form)
+def_params.odd_even_grouping = 0;   % Enable separate accumulation of odd/even उत्पाद
+def_params.pair_wise_sum     = 0;   % Enable pair-wise summation (not implemented)
+%---------------- Exponent handling ----------------%
+def_params.min_exp_limit   = -133; % Minimum exponent allowed for product alignment
+def_params.c_min_exp_limit = 0;     % Control minimum exponent for c: 1 → clamp to -126 (FP32 subnormal boundary); 0 → allow special handling when c = 0
+%---------------- Accuracy / reference model ----------------%
+def_params.correct_rounding = 0;    % Enable exact (Kulisch-style) accumulation                                
+%---------------- Subnormal handling ----------------%
+def_params.in_subnormals  = 1;   % Input subnormal support: 1 → preserve and process subnormals; 0 → flush subnormals to zero (FTZ)
+def_params.out_subnormals = 1;   % Output subnormal support: 1 → generate subnormal outputs; 0 → flush subnormal results to zero
 
 D = GEMM(alpha, A, B, beta, C, informat, outformat, def_params);
 ```
