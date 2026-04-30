@@ -4,6 +4,7 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
     %% Check matrix multiplication compatibility
     [M, K1] = size(A);
     [K2, N] = size(B);
+    
     if K1 ~= K2
         error('Matrix dimensions are not compatible for multiplication: A is %dx%d, B is %dx%d.', M, K1, K2, N);
     end
@@ -20,6 +21,7 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
     def_inopts.round  = 1; 
     def_inopts.infinity=1;
 
+        
     % CPFloat settings for the default output format.
     def_outopts.format = 'fp32';
     def_outopts.round  = 4;
@@ -66,6 +68,7 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
             ' and C are assumed to be rounded to their respective' ...
             ' precisions.\n']);
     end
+
     % ---------------------------------------------------------
     % Initialize D
     % ---------------------------------------------------------
@@ -75,34 +78,21 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
     % Extracting features and initializing constants
     % ---------------------------------------------------------
     fmt = fpformatinfo(outformat);
-    NoManBitsOut = fmt.manBits;
-    NoExpBitsOut = fmt.expBits;
+    params.NoManBitsOut = fmt.manBits;
+    params.NoExpBitsOut = fmt.expBits;
     fmt = fpformatinfo(informat);
-    NoExpBitsIn = fmt.expBits;
-    NoManBitsIn = fmt.manBits;
+    params.NoExpBitsIn = fmt.expBits;
+    params.NoManBitsIn = fmt.manBits;
 
     %% --------------------------------------------------------
-    % Model parameter extraction
+    % Simulation Model Params
     % ---------------------------------------------------------
-    nfma           = params.fma;
-    neab           = params.neab;
-    OutRoundMode   = lower(params.frmode);
-    
-    % If model parameter is not provided, it is assumed to be NVIDIA by default
-    if isfield(params, 'model') && ~isempty(params.model)
-        Model = params.model;
-    else
-        Model = 'NVIDIA'; % default NVIDIA model will run
-    end
-
-    % this concept is not used at the moment, but was in inter_leaved pattern parameter for Hopper/Blackwell for fp8 via HMMA (fp16) TC
-    stkbitenabled = 0;        % default// may be used in future
-    if isfield(params,'stkbitenabled'), stkbitenabled = params.stkbitenabled; end
-
+    nfma=params.fma;
     % Special case: Ada / L40S where number of alignment bits is negative for fp8
-    if neab < 0
+    if params.neab < 0
             % Special case of Ada/L40S
-            NoManBitsOut = NoManBitsOut + neab;
+            params.NoManBitsOut = params.NoManBitsOut + params.neab;
+        
     end
 
     %% --------------------------------------------------------
@@ -117,6 +107,7 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
         pad_size=0;
     end
     
+
 
 if M>2 && exist('ver','file') && ~isempty(ver('parallel')) && exist('feature') && feature('numcores') > 1
 %--------------------------------------------------------------------
@@ -135,6 +126,9 @@ if M>2 && exist('ver','file') && ~isempty(ver('parallel')) && exist('feature') &
                     parfor m = 1:M                             % rows of A
                         
                         a = [reshape(A(m, :), 1, []),zeros(1, pad_size)];        % take m-th row of A
+            
+                        
+                        
                         d=0;
                         for n = 1:N                         % columns of B
                 
@@ -144,9 +138,11 @@ if M>2 && exist('ver','file') && ~isempty(ver('parallel')) && exist('feature') &
                         b = [reshape(B(:, n), 1, []),zeros(1,pad_size)];    % take n-th column of B
                         c = C(m, n);                    % element C(m, n)
                         
+                        
+                        
                         K = numel(a);
-                         % for detecting +-Inf at the starting to avoid TC/MC computation and save time
                         r = a .* b;                     % elementwise multiply
+                        
                         combined=[r,c];
                         if  any(isnan(combined)) || any(isinf(combined))
                             if any(isnan(combined))
@@ -175,20 +171,17 @@ if M>2 && exist('ver','file') && ~isempty(ver('parallel')) && exist('feature') &
                                 
                                 % Call TC block
                                 
-                                    d = Generic_BFMA_TC_Full(  NoManBitsIn, ...
-                                        OutRoundMode, neab, stkbitenabled, ...
-                                        NoManBitsOut, NoExpBitsOut, ...
-                                        a_block, b_block, c,NoExpBitsIn,Model);
+                                    d = Generic_BFMA_TC(a_block, b_block, c, params);
                                 
                                 
                                 c = d;     % recursive accumulation
                             
                             
                             
-                            end     % end k loop
+                        end     % end k loop
                         
-                            D(m, n) = d;   % store result
-                    end % if Nan or Inf check
+                        D(m, n) = d;   % store result
+                end % if Nan or Inf check
             end     % end n loop
         end         % end m loop
             
@@ -218,7 +211,6 @@ else % if M>2 && parallel_cores
                     
                     
                     K = numel(a);
-                    % for detecting +-Inf at the starting to avoid TC/MC computation and save time
                     r = a .* b;                     % elementwise multiply
                     combined=[r,c];
                     if any(isnan(combined)) || any(isinf(combined))
@@ -246,14 +238,8 @@ else % if M>2 && parallel_cores
                                 
                                 a_block =  a((k - 1) * nfma + 1 : k * nfma);
                                 b_block =  b((k - 1) * nfma + 1 : k * nfma);
-                                
-                                                                 
-                                        d = Generic_BFMA_TC_Full(  NoManBitsIn, ...
-                                            OutRoundMode, neab, stkbitenabled, ...
-                                            NoManBitsOut, NoExpBitsOut, ...
-                                            a_block, b_block, c,NoExpBitsIn,Model);
-                                   
-                                    c = d;     % recursive accumulation
+                                d = Generic_BFMA_TC(a_block, b_block, c, params);
+                                c = d;     % recursive accumulation
                                
                                 
                             end     % end k loop
@@ -270,9 +256,7 @@ end
 
 
 
-%==================================================================
-%% Function for retreiving bits for accepted floating point formats
-%==================================================================
+
 
 function fmt = fpformatinfo(fmtName)
 %FPFORMATINFO  Return mantissa, exponent, and total bits for FP formats
@@ -330,26 +314,26 @@ function fmt = fpformatinfo(fmtName)
             fmt.manBits     = 10;
             fmt.hasImplicit = true;
 
-        case {'bfloat16','bf16','brainfloat16'}
+        case {'bfloat16','bf16'}
             fmt.totalBits   = 16;
             fmt.expBits     = 8;
             fmt.manBits     = 7;
             fmt.hasImplicit = true;
 
-        case {'tensorfloat32','tf32','xf32'} % xf32 from AMD
+        case {'tensorfloat32','tf32','xf32'} % xf32 from AMD Guys
             % NVIDIA TF32: FP32 exponent range, 10 mantissa bits
             fmt.totalBits   = 19; 
             fmt.expBits     = 8;
             fmt.manBits     = 10;
             fmt.hasImplicit = true;
 
-        case {'fp8-e4m3','e4m3','bf8'} % bf8 from AMD 
+        case {'fp8-e4m3','e4m3','fp8'} % fp8 from AMD Guys
             fmt.totalBits   = 8;
             fmt.expBits     = 4;
             fmt.manBits     = 3;
             fmt.hasImplicit = true;
 
-        case {'fp8-e5m2','e5m2','fp8'}  % fp8 solely for e5m2, from AMD
+        case {'fp8-e5m2','e5m2','bf8'}  % bf8 solely for e5m2, from AMD Guys
             fmt.totalBits   = 8;
             fmt.expBits     = 5;
             fmt.manBits     = 2;
@@ -377,8 +361,4 @@ function fmt = fpformatinfo(fmtName)
     fmt.bias = 2^(fmt.expBits-1) - 1;
 
 end
-
-
-
-
 
