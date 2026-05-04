@@ -102,6 +102,16 @@ matmul_test;
 
 rng(seed);
 
+model = 'h100';
+p = 1;
+matmul_test;
+p = 4;
+matmul_test;
+p = 6;
+matmul_test;
+
+rng(seed);
+
 model = 'b200';
 p = 1;
 matmul_test;

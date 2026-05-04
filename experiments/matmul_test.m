@@ -112,7 +112,10 @@ function C = matmul(A, B, model, p, u, inopt, outopt)
       for k=1:p
           if (j+k-2 < p)
               if strcmp(model, 'v100')
-                  C = V100TC(u^(j+k-2), A{j}, B{k}, 1, C, outopt.format);
+                  C = V100TC(u^(j+k-2), A{j}, B{k}, 1, C, outopt.format)
+              elseif strcmp(model, 'h100')
+                  C = H100TC(u^(j+k-2), A{j}, B{k}, 1, C,...
+                      inopt.format, outopt.format);
               elseif strcmp(model, 'a100')
                   C = A100TC(u^(j+k-2), A{j}, B{k}, 1, C,...
                   inopt.format, outopt.format);
