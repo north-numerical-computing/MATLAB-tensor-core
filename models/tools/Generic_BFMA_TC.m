@@ -72,14 +72,15 @@ if isempty(a_block) && c_zero_check
 end
 
 % check if products are allowed to exceed 2^NoExpBitsOut 
-if prd_limit 
+if prd_limit
     prd = a_block .* b_block;
-    
-    if any(abs(prd) >= 2^NoExpBitsOut)
-        if any(prd > 0) && any(prd < 0)
-            d = NaN;   % mixed signs
+    prod_max_limit = 2^NoExpBitsOut;
+
+    if any(prd >= prod_max_limit) || any(prd <= -prod_max_limit)
+        if any(prd >= prod_max_limit) && any(prd <= -prod_max_limit)
+            d = NaN;   % overflow on both positive and negative sides
         else
-            d = Inf;   % single sign only  
+            d = Inf;   % overflow only on one side
         end
         return
     end
