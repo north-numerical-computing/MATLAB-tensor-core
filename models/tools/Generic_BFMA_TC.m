@@ -89,7 +89,7 @@ end
 %% =========================================================================
 % Compute exponents and significands of inputs
 % =========================================================================
-if ~correct_rounding && (~pair_wise_sum)
+if (~pair_wise_sum)
     a_block_abs = abs(a_block);
     b_block_abs = abs(b_block);
     
