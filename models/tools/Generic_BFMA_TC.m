@@ -39,7 +39,7 @@ c_min_exp_limit   = model_params.c_min_exp_limit;
 align_round_mode  = model_params.armode;
 out_subnormals     = model_params.out_subnormals;
 in_subnormals     = model_params.in_subnormals;
-
+prd_limit         = model_params.prd_limit;
 %% =========================================================================
 % Initialization
 % =========================================================================
@@ -71,6 +71,19 @@ if isempty(a_block) && c_zero_check
     return
 end
 
+% check if products are allowed to exceed 2^NoExpBitsOut 
+if prd_limit 
+    prd = a_block .* b_block;
+    
+    if any(abs(prd) >= 2^NoExpBitsOut)
+        if any(prd > 0) && any(prd < 0)
+            d = NaN;   % mixed signs
+        else
+            d = Inf;   % single sign only  
+        end
+        return
+    end
+end
 
 %% =========================================================================
 % Compute exponents and significands of inputs
