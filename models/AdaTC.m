@@ -67,6 +67,7 @@ def_params.late_partial_sum  = 0;   % Add accumulation term 'c' after product su
                                    % (products kept in denormalised form)
 def_params.odd_even_grouping = 0;   % Enable separate accumulation of odd/even उत्पाद
 def_params.pair_wise_sum     = 0;   % Enable pair-wise summation (not implemented)
+def_params.denorm_prd        = 1;  % 1 keep denormalised, 0 normalised
 
 %---------------- Exponent handling ----------------%
 def_params.min_exp_limit   = -132; % Minimum exponent allowed for product alignment
