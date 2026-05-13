@@ -69,7 +69,7 @@ def_params.odd_even_grouping = 0;   % Enable separate accumulation of odd/even �
 def_params.pair_wise_sum     = 0;   % Enable pair-wise summation (not implemented)
 
 %---------------- Exponent handling ----------------%
-def_params.min_exp_limit   = -133; % Minimum exponent allowed for product alignment
+def_params.min_exp_limit   = -132; % Minimum exponent allowed for product alignment
 def_params.c_min_exp_limit = 0;     % Control minimum exponent for c:
                                    % 1 → clamp to -126 (FP32 subnormal boundary)
                                    % 0 → allow special handling when c = 0
