@@ -40,6 +40,8 @@ align_round_mode  = model_params.armode;
 out_subnormals     = model_params.out_subnormals;
 in_subnormals     = model_params.in_subnormals;
 prd_limit         = model_params.prd_limit;
+denorm_prd        = model_params.denorm_prd;
+
 %% =========================================================================
 % Initialization
 % =========================================================================
@@ -105,6 +107,13 @@ if (~pair_wise_sum)
     % Compute product representation
     prod_sig = a_sig .* b_sig;
     prod_exp = a_exp + b_exp;
+
+    % if products are to be kept denormalised
+    if ~denorm_prd
+         idx = abs(prod_sig) >= 2;
+         prod_sig(idx) = prod_sig(idx) ./ 2;
+         prod_exp(idx) = prod_exp(idx) + 1;
+    end
     
     % Handle zero products in grouping mode
     if odd_even_grouping
