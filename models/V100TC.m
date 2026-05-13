@@ -54,13 +54,15 @@ def_params.late_partial_sum  = 0;   % Add accumulation term 'c' after product su
                                    % (products kept in denormalised form)
 def_params.odd_even_grouping = 0;   % Enable separate accumulation of odd/even उत्पाद
 def_params.pair_wise_sum     = 0;   % Enable pair-wise summation (not implemented)
+def_params.denorm_prd        = 1;  % 1 keep denormalised, 0 normalised
 
 %---------------- Exponent handling ----------------%
-def_params.min_exp_limit   = -133; % Minimum exponent allowed for product alignment
+def_params.min_exp_limit   = -1024; % Minimum exponent allowed for product alignment
 def_params.c_min_exp_limit = 0;     % Control minimum exponent for c:
                                    % 1 → clamp to -126 (FP32 subnormal boundary)
                                    % 0 → allow special handling when c = 0
 def_params.prd_limit = 0;          % products are limited by output exponent bits, 1: limited, 0: allowed to exceed
+
 
 %---------------- Accuracy / reference model ----------------%
 def_params.correct_rounding = 0;    % Enable exact (Kulisch-style) accumulation
