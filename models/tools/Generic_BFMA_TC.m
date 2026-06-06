@@ -76,7 +76,7 @@ end
 % check if products are allowed to exceed 2^NoExpBitsOut 
 if prd_limit
     prd = a_block .* b_block;
-    prod_max_limit = 2^NoExpBitsOut;
+    prod_max_limit = 2^(2^(NoExpBitsOut-1));
 
     if any(prd >= prod_max_limit) || any(prd <= -prod_max_limit)
         if any(prd >= prod_max_limit) && any(prd <= -prod_max_limit)
@@ -572,6 +572,7 @@ function [dbits,dexp]=norm_helper(sum_unormalised,max_exp,neab,stkbit)
     sum_normalised=sum_unormalised/2^(23+neab+stkbit); 
     [~,total_exp]=log2(abs(sum_normalised)); total_exp=total_exp-1;
     dexp=max_exp+total_exp;
+    if sum_normalised~=0
     if total_exp>0
         temp_str=dec2bin(sum_unormalised_uint64);
         dbits=[temp_str(1),'.',temp_str(2:end)];
@@ -580,6 +581,10 @@ function [dbits,dexp]=norm_helper(sum_unormalised,max_exp,neab,stkbit)
         sum_unormalised_uint64=bitshift(sum_unormalised_uint64,total_exp);
         temp_str=dec2bin(sum_unormalised_uint64);
         dbits=[temp_str(1),'.',temp_str(2:end)];
+    end
+    else
+    dbits=['0.000000000000000000000000'];
+    dexp=0;
     end
 end
 
