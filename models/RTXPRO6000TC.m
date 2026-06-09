@@ -1,6 +1,6 @@
+function D = RTXPRO6000TC(alpha, A, B, beta, C, informat, outformat)
 
-% B200TC  Compute GEMM with a model of a tensor core of the B200 GPU.
-%
+% RTX PRO 6000  Compute GEMM with a model of a tensor core of the B200 GPU.
 % This function evaluates the expression D = A * B + C using the 
 % B200 TC numerical-feature-based model. The accumulation of block
 % products is performed using recursive summation.
@@ -20,6 +20,9 @@
 %
 % Output
 %   D: Result of the operation D = A * B + C computed under the 
-%      specified tensor core configuration.
+%   specified tensor core configuration.
+%   addpath('tools')
 
-%addpath('tools')
+D = B200TC(alpha, A, B, beta, C, informat, outformat);
+
+end
