@@ -1,4 +1,4 @@
-function D=CDNA1(alpha, A, B, beta, C, informat)
+function D=MI100MC(alpha, A, B, beta, C, informat)
 %
 % CDNA1 Architecture: Compute GEMM using a model of Matrix Cores (MC)
 % for AMD MI100 and other GPUs with the same CDNA1 architecture.
