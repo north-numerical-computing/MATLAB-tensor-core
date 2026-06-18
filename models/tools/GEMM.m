@@ -45,6 +45,19 @@ function D=GEMM(alpha, A, B, beta, C, informat, outformat, params)
         end
         def_inopts.format=informat;
         def_inopts.round = 1;
+
+       % Configure AMD CDNA3 FP8 FNUZ formats. Assuming roundtonearest for float/double to fp8-fnuz formats
+        if isfield(params, 'fp8_fnuz') && params.fp8_fnuz == 1
+            def_inopts.format='c';
+            def_inopts.saturation=1;
+           switch informat
+               case {'fp8-e5m2','fp8','E5M2'}
+                 def_inopts.params=[3,-15,15];   
+               case {'fp8-e4m3','bf8','E4M3'}   
+                   def_inopts.params=[4,-7,7];
+               otherwise
+           end
+        end
     
         if exist('outformat', 'var')
             def_outopts.format = outformat;
