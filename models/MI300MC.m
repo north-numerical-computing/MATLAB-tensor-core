@@ -1,4 +1,4 @@
-function D=CDNA3(alpha, A, B, beta, C, informat)
+function D=MI300MC(alpha, A, B, beta, C, informat)
 %
 % CDNA3 Architecture: Compute GEMM using a model of Matrix Cores (MC)
 % for AMD MI300/MI300A/MI300X and other GPUs with the same CDNA3 architecture.
