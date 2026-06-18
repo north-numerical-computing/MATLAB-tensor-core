@@ -1,4 +1,4 @@
-function D=CDNA2(alpha, A, B, beta, C, informat)
+function D=MI210MC(alpha, A, B, beta, C, informat)
 %
 % CDNA2 Architecture: Compute GEMM using a model of Matrix Cores (MC)
 % for AMD MI210/MI250 and other GPUs with the same CDNA1 architecture.
