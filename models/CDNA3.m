@@ -74,7 +74,7 @@ def_params.c_min_exp_limit = 1;     % Control minimum exponent for c:
                                    % 1 → clamp to -126 (FP32 subnormal boundary)
                                    % 0 → allow special handling when c = 0
 def_params.prd_limit = 1;          % products are limited by output exponent bits, 1: yes, 0: allowed to exceed                                       
-
+def_params.fp8_fnuz = 0;           % fp8 fnuz is OFF
 %---------------- Accuracy / reference model ----------------%
 def_params.correct_rounding = 0;    % Enable exact (Kulisch-style) accumulation
                                    % (used as reference / ground truth model)
@@ -95,6 +95,8 @@ elseif ismember(informat, {'tf32','tensorfloat32','xf32'})
         def_params.fma = 4;   
         
 elseif ismember(informat, {'bf8','fp8','fp8-e5m2','fp8-e4m3','e5m2','e4m3'}) 
+        def_params.global_alignment=0;
+        def_params.fp8_fnuz=1; % fp8 fnuz variant instead of fp8 OCP
         def_params.fma = 16;   
         def_params.odd_even_grouping = 1;
 
