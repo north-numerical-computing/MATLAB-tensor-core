@@ -40,13 +40,25 @@ align_round_mode  = model_params.armode;
 out_subnormals     = model_params.out_subnormals;
 in_subnormals     = model_params.in_subnormals;
 prd_limit         = model_params.prd_limit;
-denorm_prd        = model_params.denorm_prd;
+denorm_prd       = model_params.denorm_prd;
+
+if isfield(model_params, 'fp8_fnuz')
+fp8_fnuz = model_params.fp8_fnuz;
+else
+fp8_fnuz = 0;    
+end
 
 %% =========================================================================
 % Initialization
 % =========================================================================
 emin_output = 1 - (2^(NoExpBitsOut - 1) - 1);
 emin_input  = 1 - (2^(NoExpBitsIn  - 1) - 1);
+
+% fp8 fnuz exponent limit is one smaller than fp8 OCP
+if fp8_fnuz;
+    emin_input=emin_input-1;
+end
+
 
 % remove subnormals in input
 if ~in_subnormals
@@ -73,13 +85,16 @@ if isempty(a_block) && c_zero_check
     return
 end
 
-% check if products are allowed to exceed 2^NoExpBitsOut 
+%----------------------------------------------------------------------
+% limit product limit as NVIDIA allows product to exceeds beyond output
+% precision limit
+%----------------------------------------------------------------------
 if prd_limit
     prd = a_block .* b_block;
-    prod_max_limit = 2^(2^(NoExpBitsOut-1));
+    thr = 2^(2^(NoExpBitsOut-1));
 
-    if any(prd >= prod_max_limit) || any(prd <= -prod_max_limit)
-        if any(prd >= prod_max_limit) && any(prd <= -prod_max_limit)
+    if any(prd >= thr) || any(prd <= -thr)
+        if any(prd >= thr) && any(prd <= -thr)
             d = NaN;   % overflow on both positive and negative sides
         else
             d = Inf;   % overflow only on one side
@@ -91,7 +106,8 @@ end
 %% =========================================================================
 % Compute exponents and significands of inputs
 % =========================================================================
-if (~pair_wise_sum)
+if ~pair_wise_sum
+    %_block=double(a_block);b_block=double(b_block);
     a_block_abs = abs(a_block);
     b_block_abs = abs(b_block);
     
@@ -108,13 +124,12 @@ if (~pair_wise_sum)
     prod_sig = a_sig .* b_sig;
     prod_exp = a_exp + b_exp;
 
-    % if products are to be kept denormalised
+    % if products are not to be kept denormalised
     if ~denorm_prd
          idx = abs(prod_sig) >= 2;
          prod_sig(idx) = prod_sig(idx) ./ 2;
          prod_exp(idx) = prod_exp(idx) + 1;
     end
-    
     % Handle zero products in grouping mode
     if odd_even_grouping
         prod_exp(prod_zeroIdxs) = -1024; % avoid -Inf issues
@@ -193,7 +208,7 @@ elseif global_alignment
         [max_exp, prod_sum_unnorm, sOut, neab] = ...
             AddTwoNonNormSums(prod_max_exp, c_exp, sOut, ...
             c_sign, prod_sum, c_sig_uint, ...
-            align_round_mode, 31-24, 24-24, neab);
+            align_round_mode, 31-24, 24-24, neab,0);
         
         % Normalize result
         [dbits, dexp] = norm_helper(prod_sum_unnorm, max_exp, neab, 0);
@@ -219,7 +234,7 @@ elseif odd_even_grouping
     [max_exp, prod_sum, sOut, neab] = ...
         AddTwoNonNormSums(even_exp, odd_exp, even_sign, ...
         odd_sign, even_sum, odd_sum, ...
-        align_round_mode, 0, 0, neab);
+        align_round_mode, 0, 0, neab,0);
     
     % Add accumulation term c
     if ~c_zero_check
@@ -227,7 +242,7 @@ elseif odd_even_grouping
         c_exp = max(c_exp - 1, -126);
         c_sig = c / 2^c_exp;
         
-        c_sig_uint = uint32(abs(c_sig) * 2^24);
+        c_sig_uint = uint32(abs(c_sig) * 2^(23+neab));
         c_sign = (c < 0);
     else
         c_sig_uint = 0;
@@ -236,9 +251,9 @@ elseif odd_even_grouping
     end
     
     [max_exp, prod_sum_unnorm, sOut, neab] = ...
-        AddTwoNonNormSums(max_exp, c_exp, sOut, ...
+        AddTwoNonNormSums(max_exp, int16(c_exp), sOut, ...
         c_sign, prod_sum, c_sig_uint, ...
-        align_round_mode, 31-24, 24-24, neab);
+        align_round_mode, 7, 0, neab,1);
     
     [dbits, dexp] = norm_helper(prod_sum_unnorm, max_exp, neab, 0);
 
@@ -493,7 +508,7 @@ end
 %==========================================================================
 %% Denormalised Addition of two operands with different alignment mode
 %==========================================================================
-function [max_exp,prod_sum_unnorm,prod_sum_sign,neab]=AddTwoNonNormSums(max_exp_1,max_exp_2,sign_1,sign_2,sum_1,sum_2,align_round_mode,eab_1,eab_2,neab)
+function [max_exp,prod_sum_unnorm,prod_sum_sign,neab]=AddTwoNonNormSums(max_exp_1,max_exp_2,sign_1,sign_2,sum_1,sum_2,align_round_mode,eab_1,eab_2,neab,exp_check)
     
     max_exp=max([max_exp_1,max_exp_2]);
     shift=abs(max_exp_1-max_exp_2);
@@ -541,6 +556,10 @@ function [max_exp,prod_sum_unnorm,prod_sum_sign,neab]=AddTwoNonNormSums(max_exp_
         switch align_round_mode
             case 'rd' 
                 ulpAdjument=(sum_2-bitshift(bitshift(sum_2,-shift),shift))>0 && sign_2;
+                %% fp8 check for CDNA 3
+                if exp_check && (max_exp_2<(max_exp-25))
+                    ulpAdjument=0;
+                end
             case 'ru'
                 ulpAdjument=(sum_2-bitshift(bitshift(sum_2,-shift),shift))>0 && (~sign_2);
             case 'rne'
@@ -572,7 +591,7 @@ function [dbits,dexp]=norm_helper(sum_unormalised,max_exp,neab,stkbit)
     sum_normalised=sum_unormalised/2^(23+neab+stkbit); 
     [~,total_exp]=log2(abs(sum_normalised)); total_exp=total_exp-1;
     dexp=max_exp+total_exp;
-    if sum_normalised~=0
+if sum_normalised~=0    
     if total_exp>0
         temp_str=dec2bin(sum_unormalised_uint64);
         dbits=[temp_str(1),'.',temp_str(2:end)];
@@ -582,10 +601,11 @@ function [dbits,dexp]=norm_helper(sum_unormalised,max_exp,neab,stkbit)
         temp_str=dec2bin(sum_unormalised_uint64);
         dbits=[temp_str(1),'.',temp_str(2:end)];
     end
-    else
-    dbits=['0.000000000000000000000000'];
+else
+    dbits=['0.00000000000000000000000'];
     dexp=0;
-    end
+end
+
 end
 
 %==========================================================================
