@@ -88,7 +88,8 @@ def_params.out_subnormals = 1;   % Output subnormal support:
                                 % 0 → flush subnormal results to zero
 
 % Configure model based on input format
-if ismember(informat, {'fp16','half','binary16','bf16','brainfloat16'})
+if ismember(informat, {'fp16','half','binary16','bf16',...
+        'brainfloat16','bfloat16'})
    % Default configuration
 
 elseif ismember(informat, {'tf32','tensorfloat32','xf32'}) 
