@@ -111,5 +111,5 @@ Matrix core models of
  
 ## References
 
-[1] F. A. Khattak and M. Mikaitis, [Accurate Models of NVIDIA Tensor Cores]((https://doi.org/10.1145/3830409)) ACM Trans. Archit. Code Optim.<br>
+[1] F. A. Khattak and M. Mikaitis, [Accurate Models of NVIDIA Tensor Cores](https://doi.org/10.1145/3830409) ACM Trans. Archit. Code Optim.<br>
 [2] F. A. Khattak and M. Mikaitis, [Generalized Methodology for Determining Numerical Features of Hardware Floating-Point Matrix Multipliers: Part I](https://ieeexplore.ieee.org/abstract/document/11196657). 2025 IEEE High Performance Extreme Computing Conference (HPEC). Sep. 2025.<br>
