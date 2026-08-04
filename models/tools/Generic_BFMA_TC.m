@@ -178,10 +178,15 @@ elseif global_alignment
     if ~c_zero_check && ~late_partial_sum
         sign_bits(end+1) = (c < 0);
     end
-    
+
+    % when late partial sum is ON, we pass 0 to globalalignmentsum function
+    ceff = c;
+    ceff(late_partial_sum==1) = 0
+
+    % perform global alignment sum
     [dbits, dexp, sOut, prod_max_exp, prod_sum] = ...
         GlobalAlignmentSum(prod_sig, prod_exp, ...
-        c * (~late_partial_sum), sign_bits, ...
+        ceff, sign_bits, ...
         neab, stkbitenabled, min_exp_limit, 0);
     
     
