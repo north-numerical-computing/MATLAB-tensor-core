@@ -13,61 +13,61 @@ clear all;
 seed = 1;
 rng(seed);
 
-% inopt.format='binary16';
-% outopt.format='binary32';
-% 
-% model = 'mi100';
-% p = 1;
-% matmul_test_CDNA;
-% p = 2;
-% matmul_test_CDNA;
-% p = 3;
-% matmul_test_CDNA;
-% 
-% rng(seed);
-% 
-% model = 'mi250';
-% p = 1;
-% matmul_test_CDNA;
-% p = 2;
-% matmul_test_CDNA;
-% p = 3;
-% matmul_test_CDNA;
-% 
-% rng(seed);
-% 
-% model = 'mi300x';
-% p = 1;
-% matmul_test_CDNA;
-% p = 2;
-% matmul_test_CDNA;
-% p = 3;
-% matmul_test_CDNA;
-% 
-% rng(seed);
+inopt.format='binary16';
+outopt.format='binary32';
+
+model = 'mi100';
+p = 1;
+matmul_test_CDNA;
+p = 2;
+matmul_test_CDNA;
+p = 3;
+matmul_test_CDNA;
+
+rng(seed);
+
+model = 'mi250';
+p = 1;
+matmul_test_CDNA;
+p = 2;
+matmul_test_CDNA;
+p = 3;
+matmul_test_CDNA;
+
+rng(seed);
+
+model = 'mi300x';
+p = 1;
+matmul_test_CDNA;
+p = 2;
+matmul_test_CDNA;
+p = 3;
+matmul_test_CDNA;
+
+rng(seed);
 
 inopt.format='bfloat16';
 outopt.format='binary32';
 
-% rng(seed);
-% 
-% model = 'mi100';
-% p = 1;
-% matmul_test_CDNA;
-% p = 2;
-% matmul_test_CDNA;
-% p = 3;
-% matmul_test_CDNA;
-% 
-% rng(seed);
-% 
-% model = 'mi250';
-% p = 1;
-% matmul_test_CDNA;
-% p = 2;
-% matmul_test_CDNA;
-% p = 3;
-% matmul_test_CDNA;
+rng(seed);
+
+model = 'mi100';
+p = 1;
+matmul_test_CDNA;
+p = 2;
+matmul_test_CDNA;
+p = 3;
+matmul_test_CDNA;
+
+rng(seed);
+
+model = 'mi250';
+p = 1;
+matmul_test_CDNA;
+p = 2;
+matmul_test_CDNA;
+p = 3;
+matmul_test_CDNA;
 
 rng(seed);
 
