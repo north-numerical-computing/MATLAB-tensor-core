@@ -88,7 +88,6 @@ elseif ismember(informat, {'fp8-e5m2','fp8-e4m3','e5m2','e4m3'})
     if exist('outformat', 'var')
         if ismember(outformat, {'fp16','binary16','half'})
             def_params.frmode='rne';
-            def_params.min_exp_limit   = -15; % Minimum exponent allowed for product alignment
         end
     end
 end
