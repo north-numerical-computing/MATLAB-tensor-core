@@ -75,8 +75,8 @@ def_params.out_subnormals = 1;   % Output subnormal support:
 if ismember(informat, {'fp16','half','binary16'})
     if exist('outformat', 'var')
         if ismember(outformat, {'fp16','binary16','half'})
-            error(['This combination of input/output' ...
-                ' format is not supported']);
+            def_params.frmode='rne';
+            def_params.min_exp_limit   = -15; % Minimum exponent allowed for product alignment
         end
     end
 elseif ismember(informat, {'tf32', 'tensorfloat32'})
