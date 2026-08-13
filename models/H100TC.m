@@ -96,7 +96,7 @@ if ismember(informat, {'fp16','half','binary16'})
     if exist('outformat', 'var')
         if ismember(outformat, {'fp16','binary16','half'})
             def_params.frmode='rne'; % TC final rounding mode
-            def_params.min_exp_limit   = -15; % Minimum exponent allowed for product alignment
+            def_params.min_exp_limit   = -21; % Minimum exponent allowed for product alignment
 
         end  
     end
