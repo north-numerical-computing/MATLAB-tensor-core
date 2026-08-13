@@ -79,6 +79,7 @@ def_params.out_subnormals = 1;   % Output subnormal support:
 if nargin > 3
     if ismember(outformat,{'fp16','binary16','half'})
         def_params.frmode='rne';
+        def_params.min_exp_limit   = -19; % Minimum exponent allowed for product alignment
     end
 end
 
