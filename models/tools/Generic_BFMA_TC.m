@@ -541,9 +541,9 @@ function [max_exp,prod_sum_unnorm,prod_sum_sign,neab]=AddTwoNonNormSums(max_exp_
         sum_2=bitshift(sum_2,eab_1);
         switch align_round_mode
             case 'rd' 
-                ulpAdjument=(sum_1-bitshift(bitshift(sum_1,-shift),shift))>0 && sign_1;
+                ulpAdjustment=(sum_1-bitshift(bitshift(sum_1,-shift),shift))>0 && sign_1;
             case 'ru'
-                ulpAdjument=(sum_1-bitshift(bitshift(sum_1,-shift),shift))>0 && (~sign_1);
+                ulpAdjustment=(sum_1-bitshift(bitshift(sum_1,-shift),shift))>0 && (~sign_1);
             case 'rne'
                 truncated = bitshift(sum_1, -shift);
                 remainder = sum_1 - bitshift(truncated, shift);
@@ -552,7 +552,7 @@ function [max_exp,prod_sum_unnorm,prod_sum_sign,neab]=AddTwoNonNormSums(max_exp_
             otherwise
                 % truncation
         end
-        sum_1=bitshift(sum_1,-shift)+uint64(ulpAdjument);
+        sum_1=bitshift(sum_1,-shift)+uint64(ulpAdjustment);
     elseif max_exp_2<max_exp  
         % round down odd indexed product sum
         neab=neab+eab_2; % adjust neab
@@ -560,13 +560,13 @@ function [max_exp,prod_sum_unnorm,prod_sum_sign,neab]=AddTwoNonNormSums(max_exp_
         sum_2=bitshift(sum_2,eab_2);
         switch align_round_mode
             case 'rd' 
-                ulpAdjument=(sum_2-bitshift(bitshift(sum_2,-shift),shift))>0 && sign_2;
+                ulpAdjustment=(sum_2-bitshift(bitshift(sum_2,-shift),shift))>0 && sign_2;
                 %% fp8 check for CDNA 3
                 if exp_check && (max_exp_2<(max_exp-25))
-                    ulpAdjument=0;
+                    ulpAdjustment=0;
                 end
             case 'ru'
-                ulpAdjument=(sum_2-bitshift(bitshift(sum_2,-shift),shift))>0 && (~sign_2);
+                ulpAdjustment=(sum_2-bitshift(bitshift(sum_2,-shift),shift))>0 && (~sign_2);
             case 'rne'
                 truncated = bitshift(sum_2, -shift);
                 remainder = sum_2 - bitshift(truncated, shift);
@@ -575,7 +575,7 @@ function [max_exp,prod_sum_unnorm,prod_sum_sign,neab]=AddTwoNonNormSums(max_exp_
             otherwise
                 % truncation
         end
-        sum_2=bitshift(sum_2,-shift)+uint64(ulpAdjument);
+        sum_2=bitshift(sum_2,-shift)+uint64(ulpAdjustment);
     else
         %nothing
     end
