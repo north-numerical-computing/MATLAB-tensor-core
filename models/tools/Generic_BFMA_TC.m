@@ -43,9 +43,9 @@ prd_limit         = model_params.prd_limit;
 denorm_prd       = model_params.denorm_prd;
 
 if isfield(model_params, 'fp8_fnuz')
-fp8_fnuz = model_params.fp8_fnuz;
+    fp8_fnuz = model_params.fp8_fnuz;
 else
-fp8_fnuz = 0;    
+    fp8_fnuz = 0;    
 end
 
 %% =========================================================================
@@ -86,8 +86,7 @@ if isempty(a_block) && c_zero_check
 end
 
 %----------------------------------------------------------------------
-% limit product limit as NVIDIA allows product to exceeds beyond output
-% precision limit
+% if product magnitude is limited and If not, c is special
 %----------------------------------------------------------------------
 if prd_limit
     prd = a_block .* b_block;
@@ -96,12 +95,28 @@ if prd_limit
     if any(prd >= thr) || any(prd <= -thr)
         if any(prd >= thr) && any(prd <= -thr)
             d = NaN;   % overflow on both positive and negative sides
+        elseif (any(prd>=thr) && c<=-thr) || (any(prd<=-thr) && c>=thr) % if c has opposite sign Inf
+            d = NaN;
         else
-            d = Inf;   % overflow only on one side
+            d = max(prd)*Inf;   % overflow with correct sign
         end
+        return
+    % prd_limit ON but only c is special NaN/+-Inf
+   elseif (isinf(c) || isnan(c))
+            d = c;
+            return
+   else % nothing
+            
+   end
+% if prd_limit is OFF, means product can exceed threshold
+else 
+    if (isinf(c) || isnan(c)) 
+        d=c;
         return
     end
 end
+
+
 
 %% =========================================================================
 % Compute exponents and significands of inputs
@@ -326,7 +341,7 @@ dexp = dexp + (2^(NoExpBitsOut - 1) - 1);
 %% =========================================================================
 % Handle overflow (Inf / -Inf)
 % =========================================================================
-if dexp == (2^NoExpBitsOut - 1)
+if dexp >= (2^NoExpBitsOut - 1)
     d = Inf;
     if sOut == 1
         d = -d;
