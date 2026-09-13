@@ -57,8 +57,7 @@ def_params.frmode         = 'rne';  % Final rounding mode:
 def_params.armode = 'rd';   % Rounding mode during 2-operand alignment:
                                    % 'rd' = round-down (towards -Inf)
                                    % (multi-operand alignment uses truncation)
-def_params.rd_borrow_carry = 1;    % round-down strange behaviour
-
+def_params.rd_norm_aware = 1;    % RD of Sacc with Norm. aware
 def_params.stkbitenabled  = 0;      % Enable sticky bit during alignment (1 = enabled)
 
 %---------------- Accumulation architecture ----------------%
