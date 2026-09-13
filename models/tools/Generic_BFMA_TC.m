@@ -42,11 +42,21 @@ in_subnormals     = model_params.in_subnormals;
 prd_limit         = model_params.prd_limit;
 denorm_prd       = model_params.denorm_prd;
 
+
+%% special params
 if isfield(model_params, 'fp8_fnuz')
     fp8_fnuz = model_params.fp8_fnuz;
 else
     fp8_fnuz = 0;    
 end
+
+% RD of Sacc -- with norm. awareness
+if isfield(model_params, 'rd_borrow_carry')
+    rd_norm_aware = model_params.rd_norm_aware;
+else
+    rd_norm_aware = 0;    
+end
+
 
 %% =========================================================================
 % Initialization
@@ -54,11 +64,10 @@ end
 emin_output = 1 - (2^(NoExpBitsOut - 1) - 1);
 emin_input  = 1 - (2^(NoExpBitsIn  - 1) - 1);
 
-% fp8 fnuz exponent limit is one smaller than fp8 OCP
-if fp8_fnuz;
+% assuming fp8 fnuz for cdna 3
+if fp8_fnuz
     emin_input=emin_input-1;
 end
-
 
 % remove subnormals in input
 if ~in_subnormals
@@ -66,10 +75,12 @@ if ~in_subnormals
     b_block(abs(b_block)<2^emin_input)=0;
 end
 % make c=0, if its subnormal 
-if ~out_subnormals & abs(c)<(2^emin_output)
+if ~out_subnormals && abs(c)<(2^emin_output)
     c=0;
 end
+
 % Identify positions where product will be zero
+% will remove this in future to avoid resizing arrays
 prod_zeroIdxs = (a_block == 0) | (b_block == 0);
 
 % Remove zero-valued products (unless grouping requires them)
@@ -85,9 +96,9 @@ if isempty(a_block) && c_zero_check
     return
 end
 
-%----------------------------------------------------------------------
-% if product magnitude is limited and If not, c is special
-%----------------------------------------------------------------------
+
+% limit product limit as NVIDIA and AMD in MI100 allows product to exceeds beyond output
+% precision limit
 if prd_limit
     prd = a_block .* b_block;
     thr = 2^(2^(NoExpBitsOut-1));
@@ -95,10 +106,10 @@ if prd_limit
     if any(prd >= thr) || any(prd <= -thr)
         if any(prd >= thr) && any(prd <= -thr)
             d = NaN;   % overflow on both positive and negative sides
-        elseif (any(prd>=thr) && c<=-thr) || (any(prd<=-thr) && c>=thr) % if c has opposite sign Inf
+        elseif (any(prd>=thr) && c<=-thr) || (any(prd<=-thr) && c>=thr)
             d = NaN;
         else
-            d = max(prd)*Inf;   % overflow with correct sign
+            d = max(prd)*Inf;   % overflow only on one side
         end
         return
     % prd_limit ON but only c is special NaN/+-Inf
@@ -115,8 +126,6 @@ else
         return
     end
 end
-
-
 
 %% =========================================================================
 % Compute exponents and significands of inputs
@@ -156,11 +165,11 @@ if ~pair_wise_sum
 end
 
 %% =========================================================================
-% ===================== MODEL SELECTION ====================================
+% ===================== MODELS SELECTION ====================================
 % =========================================================================
 
 %--------------------------------------------------------------------------
-% Model 1: Exact accumulation (Kulisch accumulator)
+% Model 1: Correct Rounding / Exact accumulation (Kulisch accumulator)
 %--------------------------------------------------------------------------
 if correct_rounding
     
@@ -173,19 +182,16 @@ if correct_rounding
 
 
 %--------------------------------------------------------------------------
-% Pair-wise summation (not yet implemented)
+% Model 2: Pair-wise summation
 %--------------------------------------------------------------------------
 elseif pair_wise_sum
     % this function does not require product significand and exponent
-    % separetely
+    % separately
     d = pws_main(a_block,b_block,c,in_subnormals,out_subnormals,OutRoundMode,emin_input,emin_output);
     return;
     
-    % TODO: Implement pair-wise accumulation
-
-
 %--------------------------------------------------------------------------
-% Global alignment model (e.g., NVIDIA / CDNA-3)
+% Model 3: Global alignment model (e.g., NVIDIA / CDNA-3)
 %--------------------------------------------------------------------------
 elseif global_alignment
     
@@ -194,16 +200,14 @@ elseif global_alignment
         sign_bits(end+1) = (c < 0);
     end
 
-    % when late partial sum is ON, we pass 0 to globalalignmentsum function
-    ceff = c;
-    ceff(late_partial_sum==1) = 0
-
-    % perform global alignment sum
+    % pass c=0 in case late_partial_sum parameter is ON
+    c_temp = c;
+    c_temp(late_partial_sum == 1) = 0;
+    
     [dbits, dexp, sOut, prod_max_exp, prod_sum] = ...
         GlobalAlignmentSum(prod_sig, prod_exp, ...
-        ceff, sign_bits, ...
+        c_temp, sign_bits, ...
         neab, stkbitenabled, min_exp_limit, 0);
-    
     
     %---------------- Late partial sum ----------------
     if late_partial_sum
@@ -213,22 +217,25 @@ elseif global_alignment
             [~, c_exp] = log2(abs(c));
             c_exp = max(c_exp - 1, -126);
             c_sig = c / 2^c_exp;
-            
             c_sig_uint = uint32(abs(c_sig) * 2^(23 + neab));
             c_sign = (c < 0);
         else
-            c_sig_uint = 0;
+            c_sig_uint = uint32(0);
             c_sign = 0;
             c_exp = -126 * c_min_exp_limit - 1024 * (~c_min_exp_limit);
         end
         
         c_exp = int16(c_exp);
         
-        % Add partial sums
-        [max_exp, prod_sum_unnorm, sOut, neab] = ...
+       % case 1: when product sum is shifted w.r.t c
+        shift_p_sum = 32 - 24; 
+        % case 2: when c is shifted w.r.t product sum 
+        shift_c = 0;
+               % Add partial sums
+            [max_exp, prod_sum_unnorm, sOut, neab] = ...
             AddTwoNonNormSums(prod_max_exp, c_exp, sOut, ...
             c_sign, prod_sum, c_sig_uint, ...
-            align_round_mode, 31-24, 24-24, neab,0);
+            align_round_mode, shift_p_sum, shift_c, neab,0,rd_norm_aware);
         
         % Normalize result
         [dbits, dexp] = norm_helper(prod_sum_unnorm, max_exp, neab, 0);
@@ -236,7 +243,7 @@ elseif global_alignment
 
 
 %--------------------------------------------------------------------------
-% Odd-even grouping model (e.g., CDNA-3 FP8 behavior)
+% Model 4: Odd-even grouping model (e.g., CDNA-3 FP8 behavior)
 %--------------------------------------------------------------------------
 elseif odd_even_grouping
     
@@ -250,11 +257,10 @@ elseif odd_even_grouping
         GlobalAlignmentSum(prod_sig(2:2:end), prod_exp(2:2:end), ...
         0, sign_bits(2:2:end), neab, 0, min_exp_limit, 0);
     
-    % Combine even and odd sums
-    [max_exp, prod_sum, sOut, neab] = ...
+     [max_exp, prod_sum, sOut, neab] = ...
         AddTwoNonNormSums(even_exp, odd_exp, even_sign, ...
         odd_sign, even_sum, odd_sum, ...
-        align_round_mode, 0, 0, neab,0);
+        align_round_mode, 0, 0, neab,0,0);
     
     % Add accumulation term c
     if ~c_zero_check
@@ -269,11 +275,16 @@ elseif odd_even_grouping
         c_sign = 0;
         c_exp = int16(-126 * c_min_exp_limit - 1024 * (~c_min_exp_limit));
     end
-    
+
+        % case 1: when product sum is shifted w.r.t c
+        shift_p_sum = 32 - 24; 
+        % case 2: when c is shifted w.r.t product sum 
+        shift_c = 0;
+
     [max_exp, prod_sum_unnorm, sOut, neab] = ...
         AddTwoNonNormSums(max_exp, int16(c_exp), sOut, ...
         c_sign, prod_sum, c_sig_uint, ...
-        align_round_mode, 7, 0, neab,1);
+        align_round_mode, shift_p_sum, shift_c, neab,1,rd_norm_aware);
     
     [dbits, dexp] = norm_helper(prod_sum_unnorm, max_exp, neab, 0);
 
@@ -515,7 +526,7 @@ function [dbits, dexp, signOut,max_exp,sum_unormalised] = GlobalAlignmentSum(pro
     [max_exp, align_sigs] = AlignSignficand(prod_sig,prod_exp,c,neab,stkbitenabled,min_exp_limit,c_min_exp_limit);
     sum_unormalised=dot(double(align_sigs),(1-2*(sign_bits)));
     signOut=sum_unormalised<0;
-    % if sum is 
+    % this is for checking and may require for debugging (NVIDIA)
      if sum_unormalised==0
             dexp=0;
             dbits=['0.00000000000000000000000'];
@@ -528,7 +539,7 @@ end
 %==========================================================================
 %% Denormalised Addition of two operands with different alignment mode
 %==========================================================================
-function [max_exp,prod_sum_unnorm,prod_sum_sign,neab]=AddTwoNonNormSums(max_exp_1,max_exp_2,sign_1,sign_2,sum_1,sum_2,align_round_mode,eab_1,eab_2,neab,exp_check)
+function [max_exp,prod_sum_unnorm,prod_sum_sign,neab]=AddTwoNonNormSums(max_exp_1,max_exp_2,sign_1,sign_2,sum_1,sum_2,align_round_mode,eab_1,eab_2,neab,exp_check,rd_borrow_carry)
     
     max_exp=max([max_exp_1,max_exp_2]);
     shift=abs(max_exp_1-max_exp_2);
@@ -543,12 +554,12 @@ function [max_exp,prod_sum_unnorm,prod_sum_sign,neab]=AddTwoNonNormSums(max_exp_
     
     % shift>512 means one of the product sum is zero, and therefore, shift
     % must be zero
-    if shift>532
+    if shift>512
         shift=0;
     end
     % unlike addition of c in this function and in CDNA3_High, we have an
     % extra elseif because zero condition is not separately checked
-    ulpAdjument=0;
+    ulpAdjustment=0;
     if max_exp_1<max_exp   
         % round down even indexed product sum
         neab=neab+eab_1;
@@ -570,6 +581,7 @@ function [max_exp,prod_sum_unnorm,prod_sum_sign,neab]=AddTwoNonNormSums(max_exp_
         sum_1=bitshift(sum_1,-shift)+uint64(ulpAdjustment);
     elseif max_exp_2<max_exp  
         % round down odd indexed product sum
+        rd_borrow_carry = 0;
         neab=neab+eab_2; % adjust neab
         sum_1=bitshift(sum_1,eab_2);
         sum_2=bitshift(sum_2,eab_2);
@@ -592,11 +604,25 @@ function [max_exp,prod_sum_unnorm,prod_sum_sign,neab]=AddTwoNonNormSums(max_exp_
         end
         sum_2=bitshift(sum_2,-shift)+uint64(ulpAdjustment);
     else
-        %nothing
+       
     end
     operands=double([sum_1,sum_2]);
     prod_sum_unnorm=dot(operands,1-2*[sign_1,sign_2]);
     prod_sum_sign=prod_sum_unnorm<0;
+
+   % CDNA 3 Arch: (RD + Normalisation) of Sacc (refer to the paper Algo 1)    
+    if rd_borrow_carry
+        %neab=neab+1;
+        no_bits = floor(log2(abs(prod_sum_unnorm))) + 1;
+        shift = max(0, no_bits - 32);
+
+        if shift > 0
+            prod_sum_unnorm = floor(prod_sum_unnorm / 2^shift);
+            neab = neab - shift;
+        end
+    end
+
+      
 end
 
 
