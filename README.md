@@ -110,6 +110,6 @@ Matrix core models of
 3. CDNA 3 (MI300, MI300A, MI300X)
  
 ## References
-
-[1] F. A. Khattak and M. Mikaitis, *[Accurate Models of NVIDIA Tensor Cores](https://doi.org/10.1145/3830409)*, ACM Transactions on Architecture and Code Optimization (TACO).<br>
-[2] F. A. Khattak and M. Mikaitis, [Generalized Methodology for Determining Numerical Features of Hardware Floating-Point Matrix Multipliers: Part I](https://ieeexplore.ieee.org/abstract/document/11196657). 2025 IEEE High Performance Extreme Computing Conference (HPEC). Sep. 2025.<br>
+[1] F. A. Khattak, M. Mikaitis and C. J. Graziani, *[Accurate Models of AMD Matrix Cores]([https://doi.org/10.1145/3830409](https://arxiv.org/abs/2609.14845))* <br>
+[2] F. A. Khattak and M. Mikaitis, *[Accurate Models of NVIDIA Tensor Cores](https://doi.org/10.1145/3830409)*, ACM Transactions on Architecture and Code Optimization (TACO).<br>
+[3] F. A. Khattak and M. Mikaitis, [Generalized Methodology for Determining Numerical Features of Hardware Floating-Point Matrix Multipliers: Part I](https://ieeexplore.ieee.org/abstract/document/11196657). 2025 IEEE High Performance Extreme Computing Conference (HPEC). Sep. 2025.<br>
